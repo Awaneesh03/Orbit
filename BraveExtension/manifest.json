@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Orbit for YouTube",
+  "version": "1.1.0",
+  "description": "Shows what's playing on YouTube in Orbit's Now Playing widget. Talks only to Orbit's helper on this Mac.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhI6x6itH4QSyjZS7dqlxbKzCMrLpm2xUfPgoqDrionWVc5V+K2jLDnH0iVFBa2RzGiEZ8RaAsV27soXBazmYe0qzCElfVXG03zIdU3XeFKQYjzfn4sMdSJ3ERkexFQloQL8vgKm5PWPvneBAl6o5JS4FHJbd0cXGI6/v75V3taFkpIT689dyUN1KPSrJ+WQtEeS7euU7NGYwDTZYFjEhp/49Vaijm2tlfqUgrvmsrhRzy/zFad0D9DTZZpAdz9B46ZPD1rVcTAqBCowqGXX4dG4AC+yexPc7XtYccy5fo6Dsr1PimM6OgRp61QLwE2JtUSbmxPjLuYFYRFMSDnfjTQIDAQAB",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "nativeMessaging",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://music.youtube.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://music.youtube.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}
