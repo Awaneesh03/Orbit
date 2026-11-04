@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Orbit}",
+            "name": "Debug Orbit",
+            "target": "Orbit",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug Orbit"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Orbit}",
+            "name": "Release Orbit",
+            "target": "Orbit",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release Orbit"
+        }
+    ]
+}
