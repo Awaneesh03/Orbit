@@ -1929,6 +1929,105 @@ AI assistant: no chat, agents or AI features anywhere in it.
   double-click for wave and high five; tasks or the calendar for
   celebrate; reminders for stretch). Not added to the 5.2 model yet.
 
+### Desktop Pet window and movement (Stage 5.4)
+
+`Pet/DesktopPetPanel.swift`; wired in `AppDelegate.startDesktopPet()`. Orbit
+Pet stays off by default and is turned on in Settings › Pet (below); debug
+builds can also turn the Desktop Pet on in memory until the next preference
+change (`orbitctl pet:desktop:on|off`, `pet:walk`, `pet:run`, `pet:click`;
+the `state` line shows `pet=`).
+
+- **Level, verified on macOS 27.0.1** (public `CGWindowLevelForKey` and
+  `CGWindowListCopyWindowInfo`, owners and layers only): desktop
+  −2147483623, desktop icons −2147483603, normal 0; the wallpaper is
+  WindowManager's at −2147483622 / −2147483624. The pet's window is at
+  desktop icons + 1 (−2147483602): in the live stack it sat behind every
+  layer-0 application window and above the wallpaper layers. No private
+  API; no WindowServer manipulation.
+- **Window** (`DesktopPetPanel`, created on first enable, then only ordered
+  in and out): borderless, non-activating, transparent, no shadow, never key
+  or main (no focus taken, Orbit never activated), `.canJoinAllSpaces`,
+  `.stationary` (still in Mission Control), `.ignoresCycle`, no
+  `.fullScreenAuxiliary` (never on a full-screen app's Space).
+  `ignoresMouseEvents` is left at AppKit's default, so clicks on fully
+  transparent pixels pass through (explicitly false would capture the
+  rectangle, as `NotchPanel` does on purpose). 104 × 96 pt for the 96 pt cat
+  (room for the hop and the shadow); the rig stands on the window's floor.
+- **Placement** (`DesktopPetGeometry`, `desktop-pet.json`: `{"x", "y",
+  "display"}`, fractions 0…1 of the room on the display's visible frame):
+  first on the primary display near the left, on the floor (above the Dock);
+  always clamped to the visible frame (never over the menu bar or the Dock);
+  a resolution change keeps the same relative place; primary display only in
+  this stage, so a saved display that's gone (or any other) falls back to
+  it; a bad file can't put it off screen. Saved after a drag and after each
+  move.
+- **Movement**: the model's walk or run (its 45 s wander, or `startMoving`)
+  picks a target along the pet's own floor (walk 70–260 pt at 45 pt/s, run
+  220–620 pt at 130 pt/s, random direction, turning back at the edges, every
+  move under 6.5 s, inside the model's 8 s limit), faces it, and moves the
+  window frame by frame (`DesktopPetMover` on the view's display link, which
+  runs only during a move) with a gentle start and stop around a steady pace;
+  on arrival the model returns to idle. Any state change (drag, hidden,
+  sleeping, disabled, full screen, a Space change) cancels the move where it
+  is, and a late frame from an old move is ignored (generation). It never
+  follows the pointer.
+- **Interaction**: a press, a release within 4 pt is a click (the playful
+  reaction); beyond 4 pt it's a drag (the model's dragged state), the window
+  following the pointer, clamped to the desktop, saved on release.
+  `acceptsFirstMouse`, so it works without activating Orbit; no keyboard
+  shortcuts or monitoring.
+- **Spaces and full screen**: on every Space change the model ends a walk or
+  a drag and the window's `isOnActiveSpace` tells full screen apart (false on
+  a full-screen app's Space, where the window can't be): full screen
+  suppresses the pet (hidden, no movement, animation or model timers) until a
+  normal Space returns. The window's occlusion (covered by app windows, or
+  not on screen) suppresses it the same way, so nothing animates unseen.
+- **Idle** (rig change): no continuous breathing; idle is still between the
+  model's 8 s fidgets, each a one-shot finished within a second (a blink plus
+  an ear twitch, a head tilt or a tail flick); sleep is still; only a cat
+  really walking or running animates continuously. No model change.
+- **Lifecycle**: one window, one occlusion observer, no timers of its own;
+  disabling orders it out and stops the move; `stop()` (quitting) also stops
+  the follower and removes the observer.
+- **Real-app measurements: pending.** The scripted check (walks, a run, a
+  click, screenshots, Orbit and WindowServer CPU and footprint for off,
+  still, idle-with-fidgets, walking and running) runs only while the user
+  is present, unlocked and idle 20–90 s, so it doesn't fight real input.
+  That moment didn't come within 3 h 20 min, so nothing was measured. The
+  stack position above was verified live; one earlier run under a locked
+  screen gave no usable numbers. Expected cost from 5.3: still between
+  fidgets, so near the Orbit-off baseline; walking and running should cost
+  about what the rasterized rig did while moving.
+- **Known limitations**: no public notification reports a locked screen,
+  so the pet relies on occlusion (a locked screen covers it). A sleeping
+  pet wakes only on the model's events (wake on mouse movement is 5.5).
+  Primary display only. Full screen, Spaces, Mission Control, real-mouse
+  drag and click-through on transparent pixels still need checking by hand.
+
+### Settings › Pet
+
+A **Pet** pane in Settings (after Appearance), native grouped-form switches
+with a description under each:
+
+- **Enable Orbit Pet** — the master switch; off on a fresh install. Off
+  hides the pet everywhere at once (window ordered out, movement, animation
+  and timers stopped); on restores whichever experiences are chosen.
+- **Desktop Pet** and **Notch Companion** — each keeps its own choice (both
+  on by default), dimmed while the master is off. The Notch Companion's
+  choice is saved but has no effect until its window exists (5.6).
+
+Stored in `preferences.json` with the other preferences, as three flat
+fields read tolerantly (missing or invalid → default; a file from before
+this stage loads with the pet off): `"orbitPet": false, "desktopPet": true,
+"notchCompanion": true`. No state, animation or movement is saved; the
+position stays in `desktop-pet.json`. An unreadable `preferences.json` is
+never overwritten: the switches don't change until Reset All Preferences
+(General), and the Pet pane says so. `OrbitPreferences.petToggles` maps the
+choices onto the existing `PetModel.Toggles` (companion held off until 5.6),
+and `AppDelegate.apply` sets them at launch and on every change; the Desktop
+Pet already follows those toggles, so there's no second pet manager and the
+5.2 state machine is unchanged.
+
 ### Running tests
 
 ```sh
@@ -2179,7 +2278,21 @@ reactions as one-shots in their own state only, restarted not stacked, and
 none carried into the next state; Reduce Motion (no loops, no eased poses,
 a crossfade, the happy face kept); hidden removing everything; repeated
 states restarting nothing; and the follower with a real `PetModel` on a
-manual clock. 392 tests (3 skipped by default). File tests use throwaway folders under `$TMPDIR`. Tests never touch
+manual clock. `DesktopPetTests` (5.4), with fake displays, a manual
+frame clock and the manual scheduler (no real-time waits): the window's
+configuration and level, one window reused across enable/disable cycles,
+clamping, the default place, placement round trips and resolution changes,
+moves along the floor within the desktop with eased ends, the primary
+display and recovery when a display goes, a click versus a drag (threshold,
+clamping, saving), walking and running moving the window and returning to
+idle, cancellation by a drag, full screen, a Space change or disabling
+(stopped where it was, late frames ignored), full-screen suppression and
+restoration, idle still between short fidgets and sleep still, and stopping
+leaving nothing behind. Settings › Pet added defaults, tolerant decoding,
+independent combinations, persistence beside other preferences, an
+unreadable file, switches showing and hiding the window at once (master off
+mid-walk), repeated switching (one window, no extra timers, place kept) and
+launch restoring the choice. 412 tests (3 skipped by default). File tests use throwaway folders under `$TMPDIR`. Tests never touch
 UserDefaults (they use an in-memory `WidgetLayoutStore`): `cfprefsd` writes
 suite plists into `~/Library/Preferences` lazily, so throwaway suites left
 empty files behind even after deleting them.

@@ -97,12 +97,11 @@ private let shown = PetModel.State.allCases.filter { $0 != .hidden }
     let rig = PetRig()
     rig.apply(.idle, reduceMotion: false)
     #expect(!rig.root.isHidden)
-    #expect(keys(rig.body).contains("loop.breathe") && keys(rig.tail).contains("loop.tail"))
-    #expect(!keys(rig.tailStroke).contains("loop.tail"))  // the tail turns; its path never morphs in a loop
-    #expect(rig.legs.allSatisfy { !keys($0).contains("loop.stride") })
+    #expect(rig.repeatingAnimationCount == 0)  // still between fidgets (5.4): nothing keeps the compositor busy
 
     rig.apply(.walking, reduceMotion: false)
-    #expect(!keys(rig.body).contains("loop.breathe"))  // idle's motion went
+    rig.apply(.walking, reduceMotion: false)
+    #expect(keys(rig.tail).contains("loop.tail") && !keys(rig.tailStroke).contains("loop.tail"))  // the tail turns; its path never morphs in a loop
     #expect(rig.legs.allSatisfy { keys($0).contains("loop.stride") } && keys(rig.body).contains("loop.bob"))
     let walk = try #require(rig.legs[0].animation(forKey: "loop.stride"))
     rig.apply(.running, reduceMotion: false)
@@ -113,8 +112,7 @@ private let shown = PetModel.State.allCases.filter { $0 != .hidden }
     #expect(inStep == run.timeOffset && opposite != run.timeOffset)  // diagonal pairs, half a stride apart
 
     rig.apply(.sleeping, reduceMotion: false)
-    #expect(keys(rig.body).contains("loop.breathe") && rig.legs.allSatisfy { !keys($0).contains("loop.stride") })
-    #expect(!keys(rig.tail).contains("loop.tail"))  // a still, wrapped tail
+    #expect(rig.repeatingAnimationCount == 0)  // asleep: still
     rig.apply(.dragged, reduceMotion: false)
     #expect(rig.repeatingAnimationCount == 0)  // nothing that fights the drag
 }
@@ -131,6 +129,9 @@ private let shown = PetModel.State.allCases.filter { $0 != .hidden }
     rig.playFidget(3)
     #expect(keys(rig.tail).contains("cue.tail"))
     #expect(rig.lids[0].animation(forKey: "cue.blink")?.repeatCount == 0)
+    for layer in [rig.lids[0], rig.leftEar, rig.head, rig.tail] {  // every fidget is done within a second
+        for key in keys(layer) where key.hasPrefix("cue.") { #expect((layer.animation(forKey: key)?.duration ?? 9) <= 1) }
+    }
 
     rig.apply(.playful, reduceMotion: false)
     #expect(!keys(rig.lids[0]).contains("cue.blink"))  // idle's cues cancelled
@@ -160,7 +161,7 @@ private let shown = PetModel.State.allCases.filter { $0 != .hidden }
     rig.apply(.idle, reduceMotion: true)
     rig.playFidget(1)
     #expect(!keys(rig.lids[0]).contains("cue.blink"))
-    rig.apply(.idle, reduceMotion: false)  // turned off: the motion comes back
+    rig.apply(.walking, reduceMotion: false)  // turned off: the motion comes back
     #expect(rig.repeatingAnimationCount > 0)
 }
 
@@ -174,7 +175,7 @@ private let shown = PetModel.State.allCases.filter { $0 != .hidden }
     rig.playFidget(2)
     rig.playReaction()
     #expect(rig.animationCount == 0)  // nothing starts while hidden
-    rig.apply(.idle, reduceMotion: false)
+    rig.apply(.walking, reduceMotion: false)
     #expect(!rig.root.isHidden && rig.animationCount > 0)
     #expect(!allKeys(rig).contains { $0.hasPrefix(PetRig.posePrefix) })  // appearing: placed, not eased in from the old pose
 }

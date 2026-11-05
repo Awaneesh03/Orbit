@@ -91,6 +91,73 @@ private func makeSettings(_ temp: TemporaryDirectory) -> (SettingsModel, MemoryL
     #expect(try Data(contentsOf: temp.url.appending(path: aside[0])) == garbage)
 }
 
+// MARK: Orbit Pet
+
+@Test func orbitPetIsOffOnAFreshInstallWithBothExperiencesChosen() {
+    let defaults = OrbitPreferences()
+    #expect(!defaults.orbitPet && defaults.desktopPet && defaults.notchCompanion)
+    #expect(defaults.petToggles == PetModel.Toggles(pet: false, desktop: true, companion: false))
+}
+
+@Test func petPreferencesDecodeTolerantly() throws {
+    // A file from before Settings › Pet: the pet off, every other field kept.
+    let old = try JSONDecoder().decode(OrbitPreferences.self, from: Data(#"{"hideDelay": 2, "volumeHUD": false}"#.utf8))
+    #expect(old.hideDelay == 2 && !old.volumeHUD)
+    #expect(!old.orbitPet && old.desktopPet && old.notchCompanion)
+    // Invalid values take their default; valid ones are kept.
+    let bad = try JSONDecoder().decode(OrbitPreferences.self,
+                                       from: Data(#"{"orbitPet": "yes", "desktopPet": false, "notchCompanion": 3}"#.utf8))
+    #expect(!bad.orbitPet && !bad.desktopPet && bad.notchCompanion)
+}
+
+@Test func petTogglesCombineIndependently() {
+    for master in [false, true] {
+        for desktop in [false, true] {
+            for companion in [false, true] {
+                var value = OrbitPreferences()
+                value.orbitPet = master
+                value.desktopPet = desktop
+                value.notchCompanion = companion
+                #expect(value.petToggles.pet == master && value.petToggles.desktop == desktop)
+                #expect(!value.petToggles.companion)  // saved, but not shown until the companion exists (5.6)
+            }
+        }
+    }
+}
+
+@MainActor @Test func petChoicesPersistAndLeaveOtherPreferencesAlone() throws {
+    let temp = TemporaryDirectory()
+    defer { temp.cleanup() }
+    let file: JSONFile<OrbitPreferences> = temp.file("preferences.json")
+    let model = PreferencesModel(file: file)
+    model.update { $0.volumeHUD = false; $0.hideDelay = 2 }
+    model.update { $0.orbitPet = true; $0.notchCompanion = false }
+    model.update { $0.orbitPet = false }  // master off: the experiences keep their choice
+    let reloaded = PreferencesModel(file: file)
+    #expect(!reloaded.value.orbitPet && reloaded.value.desktopPet && !reloaded.value.notchCompanion)
+    #expect(!reloaded.value.volumeHUD && reloaded.value.hideDelay == 2)
+    // Only the three choices: no state, position or animation.
+    let json = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: file.url)) as? [String: Any])
+    #expect(json.keys.filter { $0.localizedCaseInsensitiveContains("pet") || $0.contains("Companion") }.sorted()
+        == ["desktopPet", "notchCompanion", "orbitPet"])
+}
+
+@MainActor @Test func anUnreadablePreferencesFileKeepsThePetOffAndIsNotOverwritten() throws {
+    let temp = TemporaryDirectory()
+    defer { temp.cleanup() }
+    let file: JSONFile<OrbitPreferences> = temp.file("preferences.json")
+    let garbage = Data(#"{"orbitPet": tru"#.utf8)
+    try garbage.write(to: file.url)
+    let model = PreferencesModel(file: file)
+    #expect(model.problem != nil && !model.value.petToggles.pet)
+    model.update { $0.orbitPet = true }  // ignored until the user resets: the file is never overwritten
+    #expect(try !model.value.petToggles.pet && Data(contentsOf: file.url) == garbage)
+    model.resetAll()  // the unreadable file moved aside, defaults saved: the pet still off
+    #expect(model.problem == nil && !model.value.orbitPet)
+    model.update { $0.orbitPet = true }
+    #expect(try file.load()?.orbitPet == true)
+}
+
 // MARK: Widgets (through the dashboard's own model)
 
 @MainActor @Test func settingsEditsTheDashboardLayout() {

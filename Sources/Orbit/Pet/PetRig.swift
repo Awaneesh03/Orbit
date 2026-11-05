@@ -203,14 +203,14 @@ final class PetRig {
         state = newState
         reduceMotion = newReduce
         guard newState != .hidden else {
+            Self.quietly { root.isHidden = true }  // no implicit fade: hidden means nothing animating
             Self.walk(root) { $0.removeAllAnimations() }
-            root.isHidden = true
             return
         }
         Self.walk(root) { layer in  // the old state's motion and one-shots
             for key in layer.animationKeys() ?? [] where !key.hasPrefix(Self.posePrefix) { layer.removeAnimation(forKey: key) }
         }
-        root.isHidden = false
+        Self.quietly { root.isHidden = false }
         let next = Self.pose(for: newState)
         let ease = wasShown && !newReduce
         if wasShown, newReduce {
@@ -224,15 +224,16 @@ final class PetRig {
         if !newReduce { addMotion(for: newState, after: ease ? Self.poseDuration : 0) }
     }
 
-    /// A small idle cue (from `PetModel.fidgets`): a blink, plus an ear
-    /// twitch, a head tilt or a tail flick in turn. Idle only; none with Reduce Motion.
+    /// A small idle cue (from `PetModel.fidgets`, every 8 s): a blink, plus
+    /// an ear twitch, a head tilt or a tail flick in turn, all done within a
+    /// second; still in between. Idle only; none with Reduce Motion.
     func playFidget(_ count: Int) {
         guard state == .idle, !reduceMotion else { return }
         fidgetsPlayed += 1
         for lid in lids { oneShot(lid, "cue.blink", "transform.scale.y", [0.001, 1, 0.001], duration: 0.22, additive: false) }
         switch count % 3 {
         case 1: oneShot(leftEar, "cue.ear", "transform.rotation.z", [0, -0.28, 0.08, 0], duration: 0.4)
-        case 2: oneShot(head, "cue.head", "transform.rotation.z", [0, -0.07, -0.07, 0], duration: 1.2)
+        case 2: oneShot(head, "cue.head", "transform.rotation.z", [0, -0.07, -0.07, 0], duration: 0.9)
         default: oneShot(tail, "cue.tail", "transform.rotation.z", [0, 0.22, -0.1, 0], duration: 0.7)
         }
     }
@@ -294,24 +295,21 @@ final class PetRig {
     static let fadeKey = kCATransition
     static let poseDuration: CFTimeInterval = 0.28
 
-    /// The state's continuous motion, all in the render server.
+    /// The state's continuous motion, all in the render server. Only a cat
+    /// that is really moving animates continuously: any continuous motion
+    /// keeps the compositor drawing frames (Stage 5.3: about +15 points of
+    /// WindowServer CPU on a quiet screen), so idle is still between its
+    /// fidget one-shots and sleep is still.
     private func addMotion(for state: PetModel.State, after delay: CFTimeInterval) {
         switch state {
-        case .idle:
-            loop(body, "breathe", "transform.scale.y", [0, 0.025], duration: 1.6, delay: delay)
-            loop(head, "breathe", "transform.translation.y", [0, -0.6], duration: 1.6, delay: delay)
-            swayTail(0.07, duration: 2.2, delay: delay)
         case .walking:
             stride(period: 0.72, swing: 0.34, bob: 1.1, delay: delay)
             swayTail(0.09, duration: 0.72, delay: delay)
         case .running:
             stride(period: 0.36, swing: 0.62, bob: 1.8, delay: delay)
             swayTail(0.06, duration: 0.36, delay: delay)
-        case .sleeping:
-            loop(body, "breathe", "transform.scale.y", [0, 0.035], duration: 2.3, delay: delay)
-            loop(head, "breathe", "transform.translation.y", [0, 0.5], duration: 2.3, delay: delay)
-        case .playful, .dragged, .hidden:
-            break  // playful: the reaction; dragged: still, so nothing fights the drag
+        case .idle, .sleeping, .playful, .dragged, .hidden:
+            break  // idle: fidgets; playful: the reaction; dragged: still, so nothing fights the drag
         }
     }
 

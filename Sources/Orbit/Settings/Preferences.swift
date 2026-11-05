@@ -56,6 +56,11 @@ struct OrbitPreferences: Codable, Equatable, Sendable {
     /// Sonic Pulse, the volume HUD below the notch. Off stops its volume
     /// listeners too; the system's own indicator is unaffected.
     var volumeHUD = true
+    /// Orbit Pet's master switch, off on a fresh install. Its two experiences
+    /// keep their own choice while it's off.
+    var orbitPet = false
+    var desktopPet = true
+    var notchCompanion = true
 
     init() {}
 
@@ -72,8 +77,16 @@ struct OrbitPreferences: Codable, Equatable, Sendable {
         musicIsland = (try? container.decode(Bool.self, forKey: .musicIsland)) ?? defaults.musicIsland
         musicIslandSeconds = (try? container.decode(Double.self, forKey: .musicIslandSeconds)) ?? defaults.musicIslandSeconds
         volumeHUD = (try? container.decode(Bool.self, forKey: .volumeHUD)) ?? defaults.volumeHUD
+        orbitPet = (try? container.decode(Bool.self, forKey: .orbitPet)) ?? defaults.orbitPet
+        desktopPet = (try? container.decode(Bool.self, forKey: .desktopPet)) ?? defaults.desktopPet
+        notchCompanion = (try? container.decode(Bool.self, forKey: .notchCompanion)) ?? defaults.notchCompanion
         self = clamped()
     }
+
+    /// What the pet model is told. The Notch Companion has no window until
+    /// Stage 5.6, so its saved choice isn't passed on yet: it would only keep
+    /// the model running for a pet nobody can see.
+    var petToggles: PetModel.Toggles { PetModel.Toggles(pet: orbitPet, desktop: desktopPet, companion: false) }
 
     func clamped() -> OrbitPreferences {
         var copy = self

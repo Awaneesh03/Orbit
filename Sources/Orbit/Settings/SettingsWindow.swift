@@ -1,13 +1,14 @@
 import SwiftUI
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case general, appearance, widgets, calendar, weather, privacy, storage, about
+    case general, appearance, pet, widgets, calendar, weather, privacy, storage, about
     var id: Self { self }
 
     var title: String {
         switch self {
         case .general: "General"
         case .appearance: "Appearance"
+        case .pet: "Pet"
         case .widgets: "Widgets"
         case .calendar: "Calendar"
         case .weather: "Weather"
@@ -21,6 +22,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .appearance: "paintbrush"
+        case .pet: "pawprint"
         case .widgets: "square.grid.2x2"
         case .calendar: "calendar"
         case .weather: "cloud.sun"
@@ -154,6 +156,7 @@ private struct SettingsView: View {
                 switch model.section {
                 case .general: GeneralSettings(model: model)
                 case .appearance: AppearanceSettings(preferences: model.preferences)
+                case .pet: PetSettings(preferences: model.preferences)
                 case .widgets: WidgetSettings(dashboard: model.dashboard, briefing: model.briefing)
                 case .privacy: PrivacySettings()
                 case .storage: StorageSettings(model: model)
@@ -258,6 +261,50 @@ private struct AppearanceSettings: View {
                 Button("Restore Default Appearance") { preferences.resetAppearance() }
             }
         }
+    }
+}
+
+/// Settings › Pet: the master switch and the two experiences. Each keeps its
+/// own choice while the master is off, so turning it back on restores them.
+private struct PetSettings: View {
+    let preferences: PreferencesModel
+
+    var body: some View {
+        let master = preferences.value.orbitPet
+        Form {
+            if let problem = preferences.problem {
+                Section {
+                    Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                    Text("These switches can't change until you reset preferences in General.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            }
+            Section {
+                Toggle(isOn: binding(\.orbitPet)) {
+                    Text("Enable Orbit Pet")
+                    Text("A small cat that keeps you company. Turning it off hides it everywhere and keeps the choices below.")
+                }
+            }
+            Section {
+                Toggle(isOn: binding(\.desktopPet)) {
+                    Text("Desktop Pet")
+                    Text("Lives on your desktop, behind your windows. It wanders now and then, and you can click or drag it. Never over full-screen apps.")
+                }
+                Toggle(isOn: binding(\.notchCompanion)) {
+                    Text("Notch Companion")
+                    Text("Peeks out below the notch. Coming in a later update; your choice is saved now.")
+                }
+            } header: {
+                Text("Where It Appears")
+            } footer: {
+                if !master { Text("Turn on Orbit Pet to use these.") }
+            }
+            .disabled(!master)
+        }
+    }
+
+    private func binding(_ key: WritableKeyPath<OrbitPreferences, Bool>) -> Binding<Bool> {
+        Binding(get: { preferences.value[keyPath: key] }, set: { value in preferences.update { $0[keyPath: key] = value } })
     }
 }
 

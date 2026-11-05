@@ -43,6 +43,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let overlay = NotchOverlayCoordinator(hud: VolumeHUD())
     private var hudPanel: SystemHUDPanel?
     private var sonicPulse: SonicPulseController?
+    /// Orbit Pet: off by default; Settings › Pet sets its toggles (`apply`).
+    /// Debug builds can still turn it on in memory (`pet:desktop:on`) until
+    /// the next preference change.
+    private let petActivity = PetActivity()
+    private lazy var pet = PetModel(activity: petActivity)
+    private var desktopPet: DesktopPet?
     private var terminationSignal: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -66,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.panel = panel
         startMusicIsland()
         startSonicPulse()
+        startDesktopPet()
         // Recently Deleted keeps items for 30 days; writes only if something expired.
         if let vault = dashboard.registry.widget("vault") as? VaultWidget {
             if case let purged = vault.purgeExpired(), purged > 0 { log.notice("vault: purged \(purged) expired item(s)") }
@@ -123,6 +130,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         interaction.hideDelay = .milliseconds(Int(value.hideDelay * 1000))
         island.reduceMotion = value.reduceMotion
         overlay.hud.reduceMotion = value.reduceMotion
+        petActivity.setReduceMotion(value.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        pet.toggles = value.petToggles  // the Desktop Pet follows the model's toggles
         setVolumeHUD(value.volumeHUD)  // at launch startSonicPulse applies it, once the panel exists
         island.autoDismiss = .milliseconds(Int(value.musicIslandSeconds * 1000))
         dashboard.preferences = value
@@ -140,6 +149,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         island.shutdown()
         sonicPulse?.setEnabled(false)
+        desktopPet?.stop()
+        pet.shutdown()
         log.notice("terminating")
     }
 
@@ -157,12 +168,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel?.reposition()
         islandPanel?.reposition()
         hudPanel?.reposition()
+        desktopPet?.screensChanged()
     }
 
     @objc private func spaceChanged() {
         interaction.spaceChanged()
         island.spaceChanged()
         overlay.spaceChanged()
+        desktopPet?.spaceChanged()
+    }
+
+    /// The Desktop Pet (5.4): its window only while enabled. The activity
+    /// model hears display sleep, fast user switching and Reduce Motion from
+    /// public notifications; the controller adds occlusion and full screen.
+    private func startDesktopPet() {
+        let desktopPet = DesktopPet(model: pet, store: JSONFile(url: OrbitStorage.directory.appending(path: "desktop-pet.json")))
+        self.desktopPet = desktopPet
+        desktopPet.start()
+        let workspace = NSWorkspace.shared.notificationCenter
+        let inputs: [(Notification.Name, @MainActor (PetActivity) -> Void)] = [
+            (NSWorkspace.screensDidSleepNotification, { $0.setDisplayAsleep(true) }),
+            (NSWorkspace.screensDidWakeNotification, { $0.setDisplayAsleep(false) }),
+            (NSWorkspace.sessionDidResignActiveNotification, { $0.setSessionLocked(true) }),
+            (NSWorkspace.sessionDidBecomeActiveNotification, { $0.setSessionLocked(false) }),
+            (NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, { [weak self] activity in
+                activity.setReduceMotion((self?.preferences.value.reduceMotion ?? false)
+                                         || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+            }),
+        ]
+        for (name, input) in inputs {
+            workspace.addObserver(forName: name, object: nil, queue: .main) { [petActivity] _ in
+                MainActor.assumeIsolated { input(petActivity) }
+            }
+        }
     }
 
     /// Sonic Pulse: the volume HUD in the slot below the notch, fed by the
@@ -246,6 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 battery=\(batteryText, privacy: .public) \
                 artwork=\(ArtworkLoader.shared.cachedCount, privacy: .public)cached/\(ArtworkLoader.shared.failedCount, privacy: .public)failed/\(ArtworkLoader.shared.requests, privacy: .public)requests \
                 island=\(String(describing: self.island.phase), privacy: .public)/\(self.island.item.map { String(describing: $0.state) } ?? "-", privacy: .public)/\(NSStringFromRect(self.islandPanel?.frame ?? .zero), privacy: .public)/visible=\(self.islandPanel?.isVisible ?? false, privacy: .public)/key=\(self.islandPanel?.isKeyWindow ?? false, privacy: .public) \
+                pet=\(self.pet.state.rawValue, privacy: .public)/\(NSStringFromRect(self.desktopPet?.panel?.frame ?? .zero), privacy: .public)/visible=\(self.desktopPet?.panel?.isVisible ?? false, privacy: .public)/onSpace=\(self.desktopPet?.panel?.isOnActiveSpace ?? false, privacy: .public)/occluded=\(self.petActivity.conditions.desktopOccluded, privacy: .public)/moving=\(self.desktopPet?.mover?.isMoving ?? false, privacy: .public)/window=\(self.desktopPet?.panel?.windowNumber ?? 0, privacy: .public) \
                 hud=\(String(describing: self.overlay.overlay), privacy: .public)/\(String(describing: self.overlay.hud.phase), privacy: .public)/\(self.overlay.hud.shown.map { "\($0.name ?? "-"):\($0.volume.map { String(format: "%.2f", $0) } ?? "nil"):\($0.isMuted.map(String.init) ?? "nil")" } ?? "-", privacy: .public)/pulse=\(self.overlay.hud.pulse, privacy: .public)/visible=\(self.hudPanel?.isVisible ?? false, privacy: .public)/covered=\(self.islandPanel?.isCovered ?? false, privacy: .public)/listeners=\(self.systemVolume.listenerCount, privacy: .public) \
                 frame=\(NSStringFromRect(self.panel?.frame ?? .zero), privacy: .public) \
                 key=\(self.panel?.isKeyWindow ?? false, privacy: .public) \
@@ -286,6 +325,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if parts.first == "volumehud", parts.count == 2 { setVolumeHUD(parts[1] == "on"); return }
             // The cat rig's preview window: pet:preview[:single], pet:state:<idle|playful|…>,
             // pet:reducemotion:on|off, pet:fidget, pet:react, pet:face:left|right, pet:close.
+            // The Desktop Pet, in memory only: pet:desktop:on|off, pet:walk, pet:run, pet:click.
+            if parts == ["pet", "desktop", "on"] || parts == ["pet", "desktop", "off"] {
+                let on = parts[2] == "on"
+                pet.toggles.pet = on
+                pet.toggles.desktop = on
+                pet.toggles.companion = false  // not built yet (a later stage)
+                return
+            }
+            if parts == ["pet", "walk"] || parts == ["pet", "run"] { pet.startMoving(running: parts[1] == "run"); return }
+            if parts == ["pet", "click"] { pet.click(); return }
             if parts.first == "pet" { return petPreviewCommand(Array(parts.dropFirst())) }
             switch (parts.first, parts.count) {
             case ("enable", 2): dashboard.setEnabled(parts[1], true)
