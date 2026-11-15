@@ -260,8 +260,25 @@ private struct AgendaRow: View {
                     .foregroundStyle(ended ? Theme.tertiary : Theme.secondary)
             }
             Spacer(minLength: 4)
+            if let url = event.meetingURL, !ended { JoinButton(url: url) }
             if live { Badge(text: "Now", isLive: true) } else if isNext { Badge(text: "Next", isLive: false) }
         }
+    }
+}
+
+/// Opens a validated meeting link (Milestone 15), only when clicked: the browser or the meeting's app.
+private struct JoinButton: View {
+    let url: URL
+
+    var body: some View {
+        Button { MeetingLink.open(url) } label: {
+            Label("Join", systemImage: "video.fill").font(.system(size: 10.5, weight: .semibold)).labelStyle(.titleAndIcon)
+                .padding(.horizontal, 8).frame(height: 20)
+                .background(HubTokens.attention.opacity(0.9), in: .capsule).foregroundStyle(.black)
+        }
+        .buttonStyle(.plain)
+        .help("Join \(MeetingLink.service(of: url) ?? url.host() ?? "the meeting"): opens in your browser or meeting app")
+        .accessibilityLabel("Join \(MeetingLink.service(of: url) ?? "meeting")")
     }
 }
 
@@ -281,7 +298,10 @@ private struct EventLine: View {
                 Text(Agenda.timeRange(event, day: agenda.day, calendar: calendar))
                     .font(OrbitType.caption.monospacedDigit())
                     .foregroundStyle(Theme.secondary)
-                Badge(text: badge, isLive: isLive)
+                HStack(spacing: 6) {
+                    Badge(text: badge, isLive: isLive)
+                    if let url = event.meetingURL { JoinButton(url: url) }
+                }
             }
         }
     }

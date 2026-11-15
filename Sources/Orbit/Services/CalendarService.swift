@@ -38,6 +38,8 @@ struct AgendaEvent: Identifiable, Equatable, Sendable {
     let calendarID: String
     let calendarTitle: String
     let color: CalendarColor?
+    /// A validated video-meeting link (Milestone 15; `MeetingLink`). Memory only, like the rest of the event.
+    var meetingURL: URL? = nil
 
     func isHappening(at now: Date) -> Bool { start <= now && now < end }
 }
@@ -88,13 +90,16 @@ final class EventKitStore: CalendarStore, @unchecked Sendable {
         let chosen = store.calendars(for: .event).filter { calendarIDs?.contains($0.calendarIdentifier) ?? true }
         guard !chosen.isEmpty else { return [] }
         let colors = Dictionary(uniqueKeysWithValues: calendars().map { ($0.id, $0.color) })
-        return store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: chosen)).map { event in
+        return store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: chosen))
+            .filter { $0.status != .canceled }  // a cancelled occurrence is not on the agenda
+            .map { event in
             AgendaEvent(
                 id: "\(event.eventIdentifier ?? event.calendarItemIdentifier)@\(Int(event.startDate.timeIntervalSinceReferenceDate))",
                 title: event.title?.isEmpty == false ? event.title : "Untitled event",
                 start: event.startDate, end: event.endDate, isAllDay: event.isAllDay,
                 calendarID: event.calendar.calendarIdentifier, calendarTitle: event.calendar.title,
-                color: colors[event.calendar.calendarIdentifier] ?? nil)
+                color: colors[event.calendar.calendarIdentifier] ?? nil,
+                meetingURL: MeetingLink.find(url: event.url, location: event.location, notes: event.notes))
         }
     }
 

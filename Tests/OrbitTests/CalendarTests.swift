@@ -8,7 +8,7 @@ import Testing
 // the real calendar database or asks for permission.
 
 /// A stand-in for EventKit: scripted access, calendars and occurrences.
-private final class MockCalendarStore: CalendarStore, @unchecked Sendable {
+final class MockCalendarStore: CalendarStore, @unchecked Sendable {
     struct State {
         var access = CalendarAccess.notDetermined
         var grantOnRequest = true
