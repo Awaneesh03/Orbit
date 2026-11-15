@@ -137,10 +137,28 @@ final class NotchPanel: NSPanel {
             onRelease: { [weak self] in self?.dragEnded() })
     }
 
+    /// While Coucou has the notch (docs/AI_HUB_SPEC.md §22) the closed trigger
+    /// ignores the pointer and approaching drags, so only Coucou answers hover
+    /// and drops there; the dashboard opens from ⌃⌥⌘O instead.
+    var yieldsTrigger = false {
+        didSet { updateMouse() }
+    }
+
+    /// The keyboard shortcut: opens the dashboard (key, so Escape closes it) or closes it.
+    func toggleFromKeyboard() {
+        guard !interaction.isOpen else { return interaction.close() }
+        interaction.pointerEntered()
+        makeKey()
+    }
+
+    private func updateMouse() {
+        ignoresMouseEvents = yieldsTrigger && !interaction.isOpen
+    }
+
     /// An image drag reached the zone below the notch: open the drop target so
     /// the user can drop without touching the top edge.
     private func dragApproached() {
-        guard !model.isDropTargeted else { return }
+        guard !model.isDropTargeted, !yieldsTrigger else { return }
         log.notice("drag approached below the notch")
         model.isDropTargeted = true
         interaction.dragEntered()
@@ -193,6 +211,7 @@ final class NotchPanel: NSPanel {
 
     private func openChanged(_ open: Bool) {
         log.notice("dashboard \(open ? "open" : "closed", privacy: .public)")
+        updateMouse()
         if open {
             setFrame(dashboardFrame, display: true)
             outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(

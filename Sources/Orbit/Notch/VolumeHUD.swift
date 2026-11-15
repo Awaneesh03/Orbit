@@ -60,7 +60,8 @@ final class VolumeHUD {
     var reduceMotion = false
 
     @ObservationIgnored let settleDelay: Duration
-    @ObservationIgnored let dismissDelay: Duration
+    /// Settings › General › Stay for (read at each new change).
+    @ObservationIgnored var dismissDelay: Duration
     @ObservationIgnored private let scheduler: any HUDScheduler
     @ObservationIgnored private var baseline: VolumeState?
     @ObservationIgnored private var settleTimer: (any HUDTimer)?
@@ -205,7 +206,15 @@ final class VolumeHUD {
 // MARK: Overlay arbitration
 
 /// What occupies the slot below the notch. One at a time.
-enum NotchOverlay: Equatable { case none, musicIsland, volumeHUD }
+enum NotchOverlay: Equatable {
+    case none, musicIsland, volumeHUD, brightnessHUD
+
+    /// Either system HUD (they share one window and slot).
+    var isHUD: Bool { self == .volumeHUD || self == .brightnessHUD }
+}
+
+/// Which system HUD showed last: it owns the shared slot and window.
+enum SystemHUDKind: Equatable, Sendable { case volume, brightness }
 
 /// Decides who owns the slot below the notch, and keeps the volume HUD in
 /// step with its inputs. Priority: an open dashboard (neither: the dashboard
@@ -220,27 +229,47 @@ final class NotchOverlayCoordinator {
         var volume: SystemVolumeStatus
         var island: MusicIsland.Phase
         var dashboardOpen: Bool
+        /// The built-in backlight (nil: none, or the brightness HUD is off) and key presses (Milestone 9).
+        var brightness: Double? = nil
+        var brightnessPresses = 0
     }
 
     let hud: VolumeHUD
+    let brightness: BrightnessHUD
     private(set) var overlay = NotchOverlay.none
+    /// The system HUD that showed last; the other one gives way at once (no stacking, no flicker).
+    private(set) var lastHUD = SystemHUDKind.volume
     /// The dashboard or the expanded player owns the slot: the HUD leaves at
     /// once rather than fading out over them.
     private(set) var isSuppressed = false
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private(set) var isRunning = false
 
-    init(hud: VolumeHUD) { self.hud = hud }
+    init(hud: VolumeHUD, brightness: BrightnessHUD = BrightnessHUD()) {
+        self.hud = hud
+        self.brightness = brightness
+    }
 
-    /// The compact island is covered by the volume HUD right now (the island
+    /// The compact island is covered by a system HUD right now (the island
     /// panel hides without touching the island's state).
-    var coversIsland: Bool { overlay == .volumeHUD }
+    var coversIsland: Bool { overlay.isHUD }
 
     nonisolated static func decide(dashboardOpen: Bool, island: MusicIsland.Phase, volumeVisible: Bool) -> NotchOverlay {
+        decide(dashboardOpen: dashboardOpen, island: island, volumeVisible: volumeVisible, brightnessVisible: false, last: .volume)
+    }
+
+    /// The approved order, with brightness in the volume HUD's place: when
+    /// both are up, the one that changed last holds the slot.
+    nonisolated static func decide(dashboardOpen: Bool, island: MusicIsland.Phase, volumeVisible: Bool,
+                                   brightnessVisible: Bool, last: SystemHUDKind) -> NotchOverlay {
         if dashboardOpen { return .none }
         if island == .expanded { return .musicIsland }
-        if volumeVisible { return .volumeHUD }
-        return island == .compact ? .musicIsland : .none
+        switch (volumeVisible, brightnessVisible) {
+        case (true, true): return last == .brightness ? .brightnessHUD : .volumeHUD
+        case (true, false): return .volumeHUD
+        case (false, true): return .brightnessHUD
+        case (false, false): return island == .compact ? .musicIsland : .none
+        }
     }
 
     /// Follows `inputs` (and the HUD's own timers) through Observation; no polling.
@@ -248,6 +277,7 @@ final class NotchOverlayCoordinator {
         guard !isRunning else { return }
         isRunning = true
         hud.resume()
+        brightness.resume()
         generation += 1
         follow(inputs, generation: generation)
     }
@@ -257,6 +287,7 @@ final class NotchOverlayCoordinator {
         isRunning = false
         generation += 1  // a pending re-run is now stale
         hud.shutdown()
+        brightness.shutdown()
         isSuppressed = false
         overlay = .none
     }
@@ -266,14 +297,26 @@ final class NotchOverlayCoordinator {
     private func follow(_ inputs: @escaping @MainActor () -> Inputs, generation registered: Int) {
         guard isRunning, registered == generation else { return }
         let current = withObservationTracking {
-            (inputs(), hud.isVisible)
+            (inputs(), hud.isVisible, brightness.isVisible)
         } onChange: { [weak self] in
             Task { @MainActor in self?.follow(inputs, generation: registered) }
         }.0
         let suppressed = current.dashboardOpen || current.island == .expanded
         if suppressed, hud.isVisible { hud.suppress() }
+        if suppressed, brightness.isVisible { brightness.suppress() }
+        let (volumePulse, brightnessPulse) = (hud.pulse, brightness.pulse)
         hud.receive(current.volume, suppressed: suppressed)
-        let next = Self.decide(dashboardOpen: current.dashboardOpen, island: current.island, volumeVisible: hud.isVisible)
+        brightness.receive(level: current.brightness, presses: current.brightnessPresses, suppressed: suppressed)
+        // The newest HUD takes the shared slot; the other leaves at once.
+        if brightness.pulse != brightnessPulse, brightness.isVisible {
+            lastHUD = .brightness
+            if hud.isVisible { hud.suppress() }
+        } else if hud.pulse != volumePulse, hud.isVisible {
+            lastHUD = .volume
+            if brightness.isVisible { brightness.suppress() }
+        }
+        let next = Self.decide(dashboardOpen: current.dashboardOpen, island: current.island, volumeVisible: hud.isVisible,
+                               brightnessVisible: brightness.isVisible, last: lastHUD)
         if isSuppressed != suppressed { isSuppressed = suppressed }
         if overlay != next { overlay = next }
     }

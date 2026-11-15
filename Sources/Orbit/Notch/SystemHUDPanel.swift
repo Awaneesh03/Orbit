@@ -46,32 +46,48 @@ final class SonicPulseController {
     let volume: SystemVolume
     let overlay: NotchOverlayCoordinator
     let panel: SystemHUDPanel
+    /// The built-in backlight, read only while the brightness HUD is on (Milestone 9).
+    let brightness: BrightnessMonitor
+    /// Which HUDs are on (Settings › General); the shared window runs while either is.
+    private(set) var volumeOn = false
+    private(set) var brightnessOn = false
     private let context: @MainActor () -> (island: MusicIsland.Phase, dashboardOpen: Bool)
 
     init(volume: SystemVolume, overlay: NotchOverlayCoordinator, panel: SystemHUDPanel,
+         brightness: BrightnessMonitor = BrightnessMonitor(read: { nil }, watchesSystem: false),
          context: @escaping @MainActor () -> (island: MusicIsland.Phase, dashboardOpen: Bool)) {
         self.volume = volume
         self.overlay = overlay
         self.panel = panel
+        self.brightness = brightness
         self.context = context
         if !overlay.isRunning { panel.stop() }  // off until `setEnabled(true)`
     }
 
     var isEnabled: Bool { overlay.isRunning }
 
-    func setEnabled(_ enabled: Bool) {
-        guard enabled != isEnabled else { return }
-        if enabled {
-            volume.start()
+    /// The volume HUD alone (its original switch; the brightness HUD keeps its own).
+    func setEnabled(_ enabled: Bool) { set(volume: enabled, brightness: brightnessOn) }
+
+    /// Each HUD on or off. The window, overlay and only the sources that are
+    /// on run while either is on; both off stops everything.
+    func set(volume volumeWanted: Bool, brightness brightnessWanted: Bool) {
+        guard volumeWanted != volumeOn || brightnessWanted != brightnessOn else { return }
+        volumeOn = volumeWanted
+        brightnessOn = brightnessWanted
+        if volumeWanted { volume.start() } else { volume.stop() }
+        if brightnessWanted { brightness.start() } else { brightness.stop() }
+        let wanted = volumeWanted || brightnessWanted
+        if wanted, !isEnabled {
             panel.start()
-            overlay.start { [volume, context] in
+            overlay.start { [volume, brightness, context] in
                 let (island, open) = context()
-                return .init(volume: volume.status, island: island, dashboardOpen: open)
+                return .init(volume: volume.status, island: island, dashboardOpen: open,
+                             brightness: brightness.isRunning ? brightness.level : nil, brightnessPresses: brightness.presses)
             }
-        } else {
+        } else if !wanted, isEnabled {
             overlay.shutdown()
             panel.stop()
-            volume.stop()
         }
     }
 }
@@ -164,12 +180,14 @@ final class SystemHUDPanel: NSPanel {
         // Suppression too (the dashboard opening mid-dismissal ends it at once),
         // and the expansion.
         let (overlay, _, expanded, _) = withObservationTracking {
-            (coordinator.overlay, coordinator.isSuppressed, coordinator.hud.isExpanded, coordinator.hud.reduceMotion)
+            (coordinator.overlay, coordinator.isSuppressed,
+             coordinator.overlay == .brightnessHUD ? coordinator.brightness.isExpanded : coordinator.hud.isExpanded,
+             coordinator.hud.reduceMotion)
         } onChange: { [weak self] in
             Task { @MainActor in self?.follow(registered) }
         }
         apply(overlay)
-        if overlay == .volumeHUD { stage.setExpanded(expanded, animated: !reduceMotion) }
+        if overlay.isHUD { stage.setExpanded(expanded, animated: !reduceMotion) }
     }
 
     /// Shows the HUD over a compact island at once; when it goes, lets the
@@ -179,7 +197,7 @@ final class SystemHUDPanel: NSPanel {
     private func apply(_ overlay: NotchOverlay) {
         hideTask?.cancel()
         hideTask = nil
-        if overlay == .volumeHUD {
+        if overlay.isHUD {
             onCoverIsland?(true)
             if !isVisible || stage.isLeaving { stage.present(animated: !reduceMotion) }
             orderFrontRegardless()
@@ -325,8 +343,12 @@ struct SonicPulseView: View {
 
     var body: some View {
         let hud = coordinator.hud
+        let brightness = coordinator.brightness
         ZStack(alignment: .top) {
-            if let state = hud.shown {  // kept while it leaves, so it can fade out
+            // Whichever HUD showed last; its value is kept while it leaves, so it can fade out.
+            if coordinator.lastHUD == .brightness, let level = brightness.shown {
+                BrightnessCapsule(level: level, pulse: brightness.pulse, reduceMotion: brightness.reduceMotion || systemReduceMotion)
+            } else if let state = hud.shown {
                 SonicPulseCapsule(state: state, pulse: hud.pulse, showsDevice: hud.showsDevice,
                                   reduceMotion: hud.reduceMotion || systemReduceMotion)
             }
@@ -375,13 +397,7 @@ struct SonicPulseCapsule: View {
         .padding(.leading, 12)
         .padding(.trailing, 16)
         .frame(width: SonicPulse.size.width, height: SonicPulse.size.height)
-        .background(.black.opacity(0.82), in: shape)
-        .glassEffect(.regular.tint(.black.opacity(0.55)), in: shape)
-        .overlay(shape.strokeBorder(OrbitGlass.rim, lineWidth: 0.6))
-        .overlay(alignment: .top) {  // the specular highlight along the top
-            shape.fill(LinearGradient(colors: [.white.opacity(0.14), .clear], startPoint: .top, endPoint: .bottom))
-                .frame(height: 13).padding(.horizontal, 14).padding(.top, 1).allowsHitTesting(false)
-        }
+        .islandSurface(in: shape)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(SonicPulse.accessibilityLabel(state))
     }

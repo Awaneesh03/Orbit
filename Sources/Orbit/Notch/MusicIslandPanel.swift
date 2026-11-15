@@ -143,9 +143,7 @@ struct MusicIslandView: View {
                     shape.fill(accent?.color.opacity(ArtworkAccent.tintOpacity) ?? .clear)
                         .animation(motion.tint, value: accent)
                 }
-                .background(.black.opacity(0.82), in: shape)
-                .glassEffect(.regular.tint(.black.opacity(0.55)), in: shape)
-                .overlay(shape.strokeBorder(OrbitGlass.rim, lineWidth: 0.6))
+                .islandSurface(in: shape)
                 .clipShape(shape)
                 .scaleEffect(island.isHovered && !expanded && !reduce ? 1.02 : 1, anchor: .top)
                 .onHover { island.hover($0) }

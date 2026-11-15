@@ -342,13 +342,16 @@ private func ringInWindow() -> (PulseRingView, NSWindow) {
 private final class Enabled {
     let audio = FakeAudio()
     let volume: SystemVolume
-    let coordinator = NotchOverlayCoordinator(hud: VolumeHUD(settleDelay: .milliseconds(40), dismissDelay: .milliseconds(150)))
+    let coordinator: NotchOverlayCoordinator
     let panel: SystemHUDPanel
     let controller: SonicPulseController
     var island = MusicIsland.Phase.hidden
     private(set) var covers: [Bool] = []
 
-    init() {
+    /// `settle`: when the HUD settles, the panel re-follows (one more cover report). Tests that count reports
+    /// over a window must settle well after it: under a loaded full-suite run a 30 ms sleep can last past 40 ms.
+    init(settle: Duration = .milliseconds(40)) {
+        coordinator = NotchOverlayCoordinator(hud: VolumeHUD(settleDelay: settle, dismissDelay: .milliseconds(150)))
         volume = SystemVolume(hardware: audio)
         panel = SystemHUDPanel(coordinator: coordinator)
         panel.alphaValue = 0
@@ -365,7 +368,7 @@ private final class Enabled {
 }
 
 @MainActor @Test func turningItOffStopsEverythingAndOnRestoresIt() async {
-    let rig = Enabled()
+    let rig = Enabled(settle: .seconds(5))  // counts cover reports below: no settle inside the window (the M9–M15 flake)
     defer { rig.controller.setEnabled(false) }
     #expect(!rig.panel.isFollowing)  // off until enabled
     rig.controller.setEnabled(true)
@@ -396,7 +399,7 @@ private final class Enabled {
     rig.change(to: 0.3)
     #expect(await eventually { rig.panel.isVisible })
     try? await Task.sleep(for: .milliseconds(30))
-    #expect(rig.shows == before + 1)  // one follow loop, not one per start
+    #expect(rig.shows == before + 1, "covers: \(rig.covers), overlay \(rig.coordinator.overlay), phase \(rig.coordinator.hud.phase)")  // one follow loop, not one per start
     #expect(await eventually { !rig.panel.isVisible })  // and it dismisses as usual
 }
 
