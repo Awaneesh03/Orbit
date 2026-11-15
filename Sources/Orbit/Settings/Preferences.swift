@@ -239,3 +239,7 @@ enum PermissionCatalog {
 
     static let privacySettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy")!
 }
+
+extension Comparable {
+    func clamped(to range: ClosedRange<Self>) -> Self { min(max(self, range.lowerBound), range.upperBound) }
+}

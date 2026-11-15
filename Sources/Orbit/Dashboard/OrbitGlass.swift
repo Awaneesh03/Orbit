@@ -361,3 +361,78 @@ struct OrbitLoadingView: View {
         .accessibilityLabel("Loading")
     }
 }
+
+// MARK: Value controls
+
+/// An on/off switch drawn in SwiftUI. Not `Toggle(.switch)`: native switches
+/// take their inactive look in the non-key panel, and offscreen renders
+/// can't draw them.
+struct OrbitSwitch: View {
+    let label: String
+    let isOn: Bool
+    let set: (Bool) -> Void
+    @Environment(\.orbitReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button { set(!isOn) } label: {
+            Capsule()
+                .fill(isOn ? Theme.accent : Color.white.opacity(0.16))
+                .frame(width: 30, height: 18)
+                .overlay(alignment: isOn ? .trailing : .leading) {
+                    Circle().fill(.white).shadow(color: .black.opacity(0.3), radius: 1, y: 0.5).padding(2)
+                }
+                .animation(OrbitMotion.animation(.snappy(duration: 0.18), reduced: reduceMotion), value: isOn)
+        }
+        .buttonStyle(DashboardButtonStyle())
+        .accessibilityLabel(label)
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityAddTraits(.isToggle)
+    }
+}
+
+/// A 0…1 slider drawn on `MeterBar`'s track: drag or click anywhere on it;
+/// VoiceOver adjusts it in 5 % steps.
+struct OrbitSlider: View {
+    let label: String
+    let value: Double
+    let set: (Double) -> Void
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = max(geometry.size.width, 1)
+            MeterBar(fraction: value)
+                .overlay(alignment: .leading) {
+                    Circle().fill(.white).frame(width: 12, height: 12).shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
+                        .offset(x: min(max(width * value - 6, 0), width - 12))
+                }
+                .frame(maxHeight: .infinity)
+                .contentShape(.rect)
+                .gesture(DragGesture(minimumDistance: 0).onChanged { set(min(max($0.location.x / width, 0), 1)) })
+        }
+        .frame(height: 16)
+        .accessibilityElement()
+        .accessibilityLabel(label)
+        .accessibilityValue("\(Int((value * 100).rounded())) percent")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: set(min(value + 0.05, 1))
+            case .decrement: set(max(value - 0.05, 0))
+            @unknown default: break
+            }
+        }
+    }
+}
+
+/// A small accent text action ("Wi-Fi Settings…"). Not `.buttonStyle(.link)`,
+/// which is AppKit-backed (inactive in the non-key panel, blank offscreen).
+struct OrbitLinkButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title).font(OrbitType.caption).foregroundStyle(Theme.accent)
+        }
+        .buttonStyle(DashboardButtonStyle())
+    }
+}
