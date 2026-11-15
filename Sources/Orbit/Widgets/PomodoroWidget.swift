@@ -16,6 +16,10 @@ struct PomodoroTimer: Codable, Equatable, Sendable {
     var focusLength: TimeInterval = 25 * 60
     var breakLength: TimeInterval = 5 * 60
     var completedSessions = 0
+    /// When each focus session ended (Milestone 14, for the weekly insights), newest last.
+    /// Optional: older files load unchanged, and sessions before this was added aren't dated.
+    var focusLog: [Date]?
+    static let focusLogLimit = 400
 
     var length: TimeInterval { phase == .focus ? focusLength : breakLength }
 
@@ -57,6 +61,8 @@ struct PomodoroTimer: Codable, Equatable, Sendable {
         guard isFinished(at: now) else { return false }
         if phase == .focus {
             completedSessions += 1
+            let ended: Date = if case .running(let endsAt) = status { min(endsAt, now) } else { now }
+            focusLog = Array(((focusLog ?? []) + [ended]).suffix(Self.focusLogLimit))
             phase = .rest
         } else {
             phase = .focus
@@ -94,6 +100,17 @@ final class PomodoroWidget: DashboardWidget {
     func settle() {
         let time = now()
         if timer.isFinished(at: time) { stored.update { $0.settle(at: time) } }
+    }
+
+    /// A focus run of `minutes` (Smart Focus, Milestone 17: 25 or 50); it becomes the timer's focus length.
+    func startFocus(minutes: Int) {
+        settle()
+        let time = now()
+        stored.update {
+            $0.phase = .focus
+            $0.focusLength = TimeInterval(min(max(minutes, 5), 120) * 60)
+            $0.start(at: time)
+        }
     }
 
     func startTimer() {
