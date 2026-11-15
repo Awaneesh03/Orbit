@@ -5,6 +5,19 @@ struct BatteryStatus: Equatable {
     var percent: Int
     var isCharging: Bool
     var isPluggedIn: Bool
+    /// macOS says the battery is full (Milestone 16).
+    var isCharged = false
+
+    /// The five states the Battery widget draws (the fifth, unavailable, is a nil status).
+    enum ChargeState: Equatable, Sendable { case onBattery, charging, pluggedInNotCharging, charged }
+
+    /// Charging only while macOS says it's charging: a connected charger isn't enough (an 80% limit,
+    /// or a full battery, stops charging while still plugged in).
+    var chargeState: ChargeState {
+        if isCharging { return .charging }
+        guard isPluggedIn else { return .onBattery }
+        return isCharged || percent >= 100 ? .charged : .pluggedInNotCharging
+    }
 
     /// Parses one power-source description; nil for anything but the internal
     /// battery (e.g. a UPS) or when capacity is missing.
@@ -15,12 +28,14 @@ struct BatteryStatus: Equatable {
         percent = Int((Double(current) / Double(max) * 100).rounded())
         isCharging = d[kIOPSIsChargingKey] as? Bool ?? false
         isPluggedIn = d[kIOPSPowerSourceStateKey] as? String == kIOPSACPowerValue
+        isCharged = d[kIOPSIsChargedKey] as? Bool ?? false
     }
 
-    init(percent: Int, isCharging: Bool, isPluggedIn: Bool) {
+    init(percent: Int, isCharging: Bool, isPluggedIn: Bool, isCharged: Bool = false) {
         self.percent = percent
         self.isCharging = isCharging
         self.isPluggedIn = isPluggedIn
+        self.isCharged = isCharged
     }
 
     static func current() -> BatteryStatus? {
