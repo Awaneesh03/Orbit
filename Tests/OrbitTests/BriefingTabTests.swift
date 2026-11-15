@@ -15,7 +15,7 @@ private func fakeRegistry() throws -> WidgetRegistry {
         FakeWidget("battery"),
         FakeWidget("tasks", presentations: [.compact, .expanded], category: .productivity),
         FakeWidget("goals", enabledByDefault: false, category: .productivity),
-        FakeWidget("events", presentations: [.compact, .expanded], category: .productivity),
+        FakeWidget("news", presentations: [.compact, .expanded], category: .productivity),
     ])
 }
 
@@ -81,9 +81,11 @@ private final class HostedDashboard {
     let model = DashboardModel(registry: makeBuiltInRegistry(temp), store: MemoryLayoutStorage().store)
     model.briefing.dailyBriefingEnabled = true
     let placed = model.sectionWidgets(.briefing)
-    #expect(placed.map(\.id) == ["weather", "events", "clock", "goals", "tasks"])
-    #expect(placed.map(\.presentation) == [.compact, .expanded, .compact, .compact, .compact])
-    #expect(WidgetGridPacking.rows(spans: placed.map(\.presentation.span), columns: 3) == [[0, 1], [2, 3, 4]])  // two rows
+    #expect(placed.map(\.id) == ["weather", "news", "tasks"])
+    #expect(placed.map(\.presentation) == [.compact, .expanded, .compact])
+    // Tech News is the feature, two rows tall; Weather and Tasks beside it.
+    let split = try #require(BriefingLayout.split(placed.map(\.presentation)))
+    #expect(split.feature == 1 && split.side == [0, 2] && split.rest.isEmpty)
     #expect(model.sectionWidgets(.overview).map(\.id) == model.overviewWidgets.map(\.id))  // the Overview is its own
 }
 
@@ -123,6 +125,7 @@ private final class HostedDashboard {
     let registry = try fakeRegistry()
     let model = DashboardModel(registry: registry, store: MemoryLayoutStorage().store)
     model.briefing.dailyBriefingEnabled = true
+    model.briefing.widgets = BriefingPreferences.availableWidgets  // Goals is offered, off by default: on here
     let tasks = try #require(registry.widget("tasks") as? FakeWidget)  // on the Overview and in the Briefing
     let goals = try #require(registry.widget("goals") as? FakeWidget)  // in the Briefing only (off on the Overview)
     let battery = try #require(registry.widget("battery") as? FakeWidget)  // on the Overview only
@@ -151,7 +154,7 @@ private final class HostedDashboard {
     let blank = try #require(render(Color.black, size: CGSize(width: 229, height: 160)))
     for state in states {
         for presentation in [WidgetPresentation.compact, .expanded] {
-            let widget = FakeWidget("events", presentations: [.compact, .expanded])
+            let widget = FakeWidget("news", presentations: [.compact, .expanded])
             widget.state = state
             widget.stateAction = WidgetAction(title: "Connect Calendar", symbol: "calendar.badge.plus") {}
             let width: CGFloat = presentation == .expanded ? 468 : 229
@@ -167,14 +170,12 @@ private final class HostedDashboard {
     defer { temp.cleanup() }
     let model = DashboardModel(registry: makeBuiltInRegistry(temp), store: MemoryLayoutStorage().store)
     model.briefing.dailyBriefingEnabled = true
+    model.briefing.widgets = BriefingPreferences.availableWidgets  // every widget the Briefing offers
     let placed = Dictionary(uniqueKeysWithValues: model.briefingWidgets.map { ($0.id, $0.widget) })
-    #expect(placed.count == 5 && placed.values.allSatisfy { widget in model.registry.widget(widget.metadata.id) === widget })
+    #expect(placed.count == 7 && placed.values.allSatisfy { widget in model.registry.widget(widget.metadata.id) === widget })
     let weather = try #require(placed["weather"])
     #expect(weather.state == .empty("Choose a city to see the weather.") && weather.stateAction?.title == "Choose City")
-    let calendar = try #require(placed["events"])
-    switch calendar.state {  // whatever this Mac's Calendar permission is; Orbit never asks on its own
-    case .needsAccess, .unavailable, .ready, .loading, .empty: break
-    case .failed(let message): Issue.record("calendar failed: \(message)")
-    }
+    let news = try #require(placed["news"])
+    #expect(news.state == .loading)  // never fetched until shown, and no cache in an isolated folder
     #expect(placed["tasks"]?.state != nil && placed["goals"]?.state != nil && placed["clock"]?.state == .ready)
 }

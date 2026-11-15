@@ -42,6 +42,9 @@ struct OrbitPreferences: Codable, Equatable, Sendable {
     static let hideDelayRange: ClosedRange<Double> = 0.3...3
     static let opacityRange: ClosedRange<Double> = 0.6...1
     static let musicIslandSecondsRange: ClosedRange<Double> = 2...10
+    static let hudSecondsRange: ClosedRange<Double> = 1...5
+    static let meetingNoticeRange: ClosedRange<Int> = 10...60
+    static let meetingUrgentRange: ClosedRange<Int> = 1...10
 
     var hideDelay = 1.0
     var appearance = AppearancePreference.dark
@@ -56,11 +59,47 @@ struct OrbitPreferences: Codable, Equatable, Sendable {
     /// Sonic Pulse, the volume HUD below the notch. Off stops its volume
     /// listeners too; the system's own indicator is unaffected.
     var volumeHUD = true
+    /// The brightness HUD (Milestone 9): shows the built-in display's level when it changes.
+    var brightnessHUD = true
+    /// How long the volume and brightness HUDs stay after the last change.
+    var hudSeconds = 1.5
+    /// Where compact notch info goes: a pill below the notch (default), or wings beside the camera (Milestone 9).
+    var compactStyle = CompactStyle.below
+    /// Where meetings and agents that need you show (Milestone 15): Automatic = the wings on a notched main display
+    /// with "Beside the camera", otherwise the floating pill below the menu bar or notch.
+    var statusDisplay = StatusDisplay.automatic
+    /// The next meeting in the wings (Milestone 14): a heads-up `meetingNoticeMinutes`
+    /// before, more noticeable `meetingUrgentMinutes` before, "now" at the start.
+    var meetingHeadsUp = true
+    var meetingNoticeMinutes = 30
+    var meetingUrgentMinutes = 5
     /// Orbit Pet's master switch, off on a fresh install. Its two experiences
     /// keep their own choice while it's off.
     var orbitPet = false
     var desktopPet = true
     var notchCompanion = true
+    /// The pet's look: a cat or dog coat, or colours from your photo (M7).
+    var petLook = PetLook()
+    /// The AI Hub's master switch (docs/AI_HUB_SPEC.md §14), off by default.
+    var aiHub = false
+    /// Simulated agents in the AI Hub (§14, P1-2), off by default; only with `aiHub`.
+    var aiHubDemo = false
+    /// Agent alerts below the notch (Phase 10), while the AI Hub is on.
+    var aiHubAlerts = true
+    /// Which agent alerts show, and when (Milestone 14).
+    var agentAlerts = AgentAlertRules()
+    /// Light automations (Milestone 14), none by default.
+    var automations: [AutomationRule] = []
+    /// Milestone 16: the Universal Launcher's shortcut and whether it searches files (Spotlight, names only).
+    var launcherShortcut = LauncherShortcut.controlOptionSpace
+    var launcherFiles = true
+    /// The Battery widget's Apps Using Significant Energy (sampled only while it shows) and charging animation.
+    var batteryEnergy = true
+    var chargingAnimation = true
+    /// The Get Started page has been shown once.
+    var onboardingSeen = false
+    /// Proactive suggestions (Milestone 17): conservative by default (2 at most).
+    var suggestions = SuggestionPreferences()
 
     init() {}
 
@@ -77,9 +116,28 @@ struct OrbitPreferences: Codable, Equatable, Sendable {
         musicIsland = (try? container.decode(Bool.self, forKey: .musicIsland)) ?? defaults.musicIsland
         musicIslandSeconds = (try? container.decode(Double.self, forKey: .musicIslandSeconds)) ?? defaults.musicIslandSeconds
         volumeHUD = (try? container.decode(Bool.self, forKey: .volumeHUD)) ?? defaults.volumeHUD
+        brightnessHUD = (try? container.decode(Bool.self, forKey: .brightnessHUD)) ?? defaults.brightnessHUD
+        hudSeconds = (try? container.decode(Double.self, forKey: .hudSeconds)) ?? defaults.hudSeconds
+        compactStyle = (try? container.decode(CompactStyle.self, forKey: .compactStyle)) ?? defaults.compactStyle
+        statusDisplay = (try? container.decode(StatusDisplay.self, forKey: .statusDisplay)) ?? defaults.statusDisplay
+        meetingHeadsUp = (try? container.decode(Bool.self, forKey: .meetingHeadsUp)) ?? defaults.meetingHeadsUp
+        meetingNoticeMinutes = (try? container.decode(Int.self, forKey: .meetingNoticeMinutes)) ?? defaults.meetingNoticeMinutes
+        meetingUrgentMinutes = (try? container.decode(Int.self, forKey: .meetingUrgentMinutes)) ?? defaults.meetingUrgentMinutes
         orbitPet = (try? container.decode(Bool.self, forKey: .orbitPet)) ?? defaults.orbitPet
         desktopPet = (try? container.decode(Bool.self, forKey: .desktopPet)) ?? defaults.desktopPet
         notchCompanion = (try? container.decode(Bool.self, forKey: .notchCompanion)) ?? defaults.notchCompanion
+        petLook = (try? container.decode(PetLook.self, forKey: .petLook)) ?? defaults.petLook
+        aiHub = (try? container.decode(Bool.self, forKey: .aiHub)) ?? defaults.aiHub
+        aiHubDemo = (try? container.decode(Bool.self, forKey: .aiHubDemo)) ?? defaults.aiHubDemo
+        aiHubAlerts = (try? container.decode(Bool.self, forKey: .aiHubAlerts)) ?? defaults.aiHubAlerts
+        agentAlerts = (try? container.decode(AgentAlertRules.self, forKey: .agentAlerts)) ?? defaults.agentAlerts
+        automations = AutomationRule.decodeList(container, forKey: .automations) ?? defaults.automations
+        launcherShortcut = (try? container.decode(LauncherShortcut.self, forKey: .launcherShortcut)) ?? defaults.launcherShortcut
+        launcherFiles = (try? container.decode(Bool.self, forKey: .launcherFiles)) ?? defaults.launcherFiles
+        batteryEnergy = (try? container.decode(Bool.self, forKey: .batteryEnergy)) ?? defaults.batteryEnergy
+        chargingAnimation = (try? container.decode(Bool.self, forKey: .chargingAnimation)) ?? defaults.chargingAnimation
+        onboardingSeen = (try? container.decode(Bool.self, forKey: .onboardingSeen)) ?? defaults.onboardingSeen
+        suggestions = (try? container.decode(SuggestionPreferences.self, forKey: .suggestions)) ?? defaults.suggestions
         self = clamped()
     }
 
@@ -94,6 +152,9 @@ struct OrbitPreferences: Codable, Equatable, Sendable {
         copy.dashboardOpacity = min(max(dashboardOpacity, Self.opacityRange.lowerBound), Self.opacityRange.upperBound)
         copy.musicIslandSeconds = min(max(musicIslandSeconds.isFinite ? musicIslandSeconds : 4,
                                           Self.musicIslandSecondsRange.lowerBound), Self.musicIslandSecondsRange.upperBound)
+        copy.hudSeconds = min(max(hudSeconds.isFinite ? hudSeconds : 1.5, Self.hudSecondsRange.lowerBound), Self.hudSecondsRange.upperBound)
+        copy.meetingNoticeMinutes = meetingNoticeMinutes.clamped(to: Self.meetingNoticeRange)
+        copy.meetingUrgentMinutes = meetingUrgentMinutes.clamped(to: Self.meetingUrgentRange)
         return copy
     }
 }
@@ -128,6 +189,15 @@ final class PreferencesModel {
             $0.musicIsland = defaults.musicIsland
             $0.musicIslandSeconds = defaults.musicIslandSeconds
             $0.volumeHUD = defaults.volumeHUD
+            $0.brightnessHUD = defaults.brightnessHUD
+            $0.hudSeconds = defaults.hudSeconds
+            $0.compactStyle = defaults.compactStyle
+            $0.statusDisplay = defaults.statusDisplay
+            $0.batteryEnergy = defaults.batteryEnergy
+            $0.chargingAnimation = defaults.chargingAnimation
+            $0.meetingHeadsUp = defaults.meetingHeadsUp
+            $0.meetingNoticeMinutes = defaults.meetingNoticeMinutes
+            $0.meetingUrgentMinutes = defaults.meetingUrgentMinutes
         }
     }
 

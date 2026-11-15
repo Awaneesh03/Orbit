@@ -313,7 +313,7 @@ private func settle(_ refresher: Refresher<Int>) async {
     let model = BriefingPreferencesModel(file: BriefingPreferencesModel.file(in: temp.url))
     #expect(model.value == BriefingPreferences())
     #expect(model.value.dailyBriefingEnabled == false)  // never on by default
-    #expect(model.value.widgets == ["weather", "events", "clock", "goals", "tasks"])  // 3.8-1's preset
+    #expect(model.value.widgets == ["weather", "news", "tasks"])  // M3 preset (was 3.8-1: weather, events, clock, goals, tasks)
     #expect(model.problem == nil)
     #expect(!FileManager.default.fileExists(atPath: temp.url.appending(path: "briefing.json").path(percentEncoded: false)))
 }

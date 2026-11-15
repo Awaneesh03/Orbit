@@ -9,7 +9,6 @@ struct DashboardView: View {
     let topInset: CGFloat
 
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
-    private let shape = UnevenRoundedRectangle(bottomLeadingRadius: 26, bottomTrailingRadius: 26)
 
     /// Orbit's Reduce Motion setting, or the system's (Accessibility › Display).
     static func reducesMotion(preference: Bool, system: Bool) -> Bool { preference || system }
@@ -50,6 +49,14 @@ struct DashboardView: View {
                         OverviewSection(model: model)
                     case .briefing:
                         BriefingSection(widgets: model.briefingWidgets)
+                    case .ai:
+                        if let hub = model.aiHub {
+                            AIHubPage(hub: hub, chat: model.sectionWidgets(.ai))
+                        } else {
+                            CategorySection(widgets: model.sectionWidgets(.ai))
+                        }
+                    case .system:
+                        SystemPage(services: model.system, widgets: model.sectionWidgets(.system))
                     default:
                         CategorySection(widgets: model.sectionWidgets(model.section))
                     }
@@ -64,21 +71,21 @@ struct DashboardView: View {
         .font(.system(size: 12, weight: .medium))
         .foregroundStyle(.white)
         .padding(.top, topInset + 8)
-        .padding([.horizontal, .bottom], 16)
+        .padding(.horizontal, 16 + NotchStyle.attachedShoulder)
+        .padding(.bottom, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // Top right, level with the tabs: the one spot that never covers content.
         .overlay(alignment: .topTrailing) {
             if let notice = model.notice {
                 NoticeView(notice: notice)
                     .padding(.top, topInset + 4)
-                    .padding(.trailing, 16)
+                    .padding(.trailing, 16 + NotchStyle.attachedShoulder)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .animation(motion(.snappy(duration: 0.25)), value: model.notice)
-        // Black at the top so the panel reads as an extension of the notch.
-        .background(.black.opacity(model.preferences.dashboardOpacity), in: shape)
-        .glassEffect(.regular.tint(.black.opacity(0.55)), in: shape)
+        // Grows out of the notch: black, concave shoulders, a rim of light below.
+        .notchSurface(bottomRadius: 28, opacity: model.preferences.dashboardOpacity)
     }
 }
 

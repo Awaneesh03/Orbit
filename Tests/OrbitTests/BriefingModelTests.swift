@@ -7,7 +7,7 @@ import Testing
 // briefing.json, the same widget instances as the Overview, and never a
 // change to the Overview's layout.
 
-private let preset: [WidgetID] = ["weather", "events", "clock", "goals", "tasks"]
+private let preset: [WidgetID] = ["weather", "news", "tasks"]
 
 /// A registry of the five briefing widgets plus one the briefing doesn't use.
 @MainActor
@@ -18,7 +18,7 @@ private func briefingRegistry() throws -> WidgetRegistry {
         FakeWidget("battery"),
         FakeWidget("tasks", presentations: [.compact, .expanded]),
         FakeWidget("goals", enabledByDefault: false),
-        FakeWidget("events", presentations: [.compact, .expanded]),
+        FakeWidget("news", presentations: [.compact, .expanded]),
     ])
 }
 
@@ -30,45 +30,70 @@ private func decode(_ json: String) throws -> BriefingPreferences {
 
 @Test func defaultsAreTheTwoRowPresetAndOff() {
     let briefing = BriefingPreferences()
-    #expect(!briefing.dailyBriefingEnabled && briefing.version == 2)
+    #expect(!briefing.dailyBriefingEnabled && briefing.version == 3)
     #expect(briefing.widgets == preset)
-    #expect(preset.map(briefing.presentation(for:)) == [.compact, .expanded, .compact, .compact, .compact])
-    // 1 + 2 cells, then 1 + 1 + 1: exactly two rows of three.
-    let spans = preset.map { briefing.presentation(for: $0).span }
-    #expect(WidgetGridPacking.rows(spans: spans, columns: 3) == [[0, 1], [2, 3, 4]])
+    #expect(preset.map(briefing.presentation(for:)) == [.compact, .expanded, .compact])
+    // Tech News two cells wide and two rows tall, Weather and Tasks beside it: all six cells, no scrolling.
+    let split = BriefingLayout.split(preset.map(briefing.presentation(for:)))
+    #expect(split?.feature == 1 && split?.side == [0, 2] && split?.rest == [])
+    #expect(BriefingPreferences.availableWidgets == ["weather", "news", "tasks", "goals", "clock", "linkedin", "digest"])
 }
 
 @Test func versionOneFilesMoveToTheNewPreset() throws {
     let old = try decode(#"{"version":1,"dailyBriefingEnabled":false,"widgets":["clock","weather","events","tasks"],"options":{}}"#)
-    #expect(old.widgets == preset && old.version == 2)
-    #expect(old.presentation(for: "events") == .expanded)
+    #expect(old.widgets == preset && old.version == 3)
+    #expect(old.presentation(for: "news") == .expanded)
 
     let unversioned = try decode(#"{"widgets":["clock","weather","events","tasks"],"options":{"weather":{"city":"Pune"}}}"#)
     #expect(unversioned.widgets == preset && unversioned.options["weather"]?["city"] == "Pune")  // other options kept
-    #expect(unversioned.presentation(for: "events") == .expanded)
+    #expect(unversioned.presentation(for: "news") == .expanded)
 
     let keptSize = try decode(#"{"version":1,"widgets":["clock","weather","events","tasks"],"options":{"events":{"presentation":"compact"}}}"#)
-    #expect(keptSize.presentation(for: "events") == .compact)  // a size the file sets is never overwritten
+    #expect(keptSize.presentation(for: "news") == .compact)  // Calendar's size carries over to Tech News
 
     let custom = try decode(#"{"version":1,"dailyBriefingEnabled":true,"widgets":["tasks","weather"]}"#)
     #expect(custom.widgets == ["tasks", "weather"] && custom.dailyBriefingEnabled)  // a customised list stays
 
-    let newer = try decode(#"{"version":3,"widgets":["clock","weather","events","tasks"]}"#)
-    #expect(newer.widgets == ["clock", "weather", "events", "tasks"] && newer.version == 3)  // a newer file isn't "migrated"
+    let newer = try decode(#"{"version":4,"widgets":["clock","weather","events","tasks"]}"#)
+    #expect(newer.widgets == ["clock", "weather", "events", "tasks"] && newer.version == 4)  // a newer file isn't "migrated"
     #expect(try decode("{}") == BriefingPreferences())
+}
+
+@Test func featureLayoutNeedsAnExpandedWidgetAndTwoCompactOnes() {
+    #expect(BriefingLayout.split([.compact, .compact, .compact]) == nil)  // no feature: the plain grid
+    #expect(BriefingLayout.split([.expanded, .compact]) == nil)  // nothing to stack beside it
+    let split = BriefingLayout.split([.expanded, .compact, .expanded, .compact, .compact])
+    #expect(split?.feature == 0 && split?.side == [1, 3] && split?.rest == [2, 4])  // only the first expanded is the feature
+}
+
+@Test func versionTwoFilesSwapCalendarForTechNews() throws {
+    // The version 2 preset: Calendar's place and size go to Tech News.
+    let preset2 = try decode(#"{"version":2,"dailyBriefingEnabled":true,"widgets":["weather","events","clock","goals","tasks"],"options":{"events":{"presentation":"expanded"}}}"#)
+    #expect(preset2.widgets == preset && preset2.version == 3 && preset2.dailyBriefingEnabled)
+    #expect(preset2.presentation(for: "news") == .expanded)
+    // A customised list keeps its order; Calendar's compact size carries over.
+    let custom = try decode(#"{"version":2,"widgets":["tasks","events","weather"],"options":{"events":{"presentation":"compact"},"weather":{"city":"Pune"}}}"#)
+    #expect(custom.widgets == ["tasks", "news", "weather"] && custom.presentation(for: "news") == .compact)
+    #expect(custom.options["weather"]?["city"] == "Pune")
+    // Already has news: Calendar is simply removed, never duplicated.
+    let both = try decode(#"{"version":2,"widgets":["news","events","clock"]}"#)
+    #expect(both.widgets == ["news", "clock"] && both.presentation(for: "news") == .expanded)
+    // No Calendar at all: nothing changes but the version.
+    let none = try decode(#"{"version":2,"widgets":["clock","tasks"]}"#)
+    #expect(none.widgets == ["clock", "tasks"] && none.version == 3)
 }
 
 @MainActor @Test func unknownMissingAndUnsupportedEntriesAreSafe() throws {
     let dashboard = DashboardModel(registry: try briefingRegistry(), store: MemoryLayoutStorage().store)
     #expect(dashboard.briefingWidgets.map(\.id) == preset)
-    #expect(dashboard.briefingWidgets.map(\.presentation) == [.compact, .expanded, .compact, .compact, .compact])
+    #expect(dashboard.briefingWidgets.map(\.presentation) == [.compact, .expanded, .compact])
 
     var briefing = BriefingPreferences()
-    briefing.widgets = ["spotify", "weather", "goals", "", "weather", "events"]  // unknown, empty, repeated
+    briefing.widgets = ["spotify", "weather", "goals", "", "weather", "news"]  // unknown, empty, repeated
     briefing.setPresentation(.expanded, for: "goals")  // goals has no expanded size
     briefing.options["weather"] = [BriefingPreferences.presentationKey: "enormous"]
     dashboard.briefing = briefing
-    #expect(dashboard.briefingWidgets.map(\.id) == ["weather", "goals", "events"])  // skipped, once each
+    #expect(dashboard.briefingWidgets.map(\.id) == ["weather", "goals", "news"])  // skipped, once each
     #expect(dashboard.briefingWidgets.map(\.presentation) == [.compact, .compact, .expanded])  // unsupported → compact
 
     dashboard.briefing.widgets = ["nothing", "here"]
@@ -91,8 +116,8 @@ private func decode(_ json: String) throws -> BriefingPreferences {
         dashboard.briefing.dailyBriefingEnabled = enabled
         _ = dashboard.briefingWidgets
     }
-    dashboard.briefing.widgets = ["events"]
-    dashboard.briefing.setPresentation(.compact, for: "events")
+    dashboard.briefing.widgets = ["news"]
+    dashboard.briefing.setPresentation(.compact, for: "news")
     #expect(storage.data == savedLayout)  // widgetLayout: not a byte changed, never re-saved
     #expect(dashboard.layout == layout)
     #expect(dashboard.overviewWidgets.map { "\($0.id):\($0.presentation)" } == overview)
@@ -129,7 +154,7 @@ private func decode(_ json: String) throws -> BriefingPreferences {
     let legacyBytes = Data(#"{"version":1,"widgets":["clock","weather","events","tasks"]}"#.utf8)
     try legacyBytes.write(to: legacyFile.url)
     let reopened = BriefingPreferencesModel(file: legacyFile)
-    #expect(reopened.value.widgets == preset && reopened.value.presentation(for: "events") == .expanded)
+    #expect(reopened.value.widgets == preset && reopened.value.presentation(for: "news") == .expanded)
     #expect(try Data(contentsOf: legacyFile.url) == legacyBytes)
 }
 

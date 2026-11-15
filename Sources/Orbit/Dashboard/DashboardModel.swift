@@ -29,6 +29,10 @@ final class DashboardModel {
     private(set) var notice: Notice?
     /// Look and feel from Settings; the defaults are the approved design.
     var preferences = OrbitPreferences()
+    /// The AI Hub's sessions page (nil: the section shows its widgets only).
+    var aiHub: AIHubService?
+    /// The System tab's panes (Wi-Fi, Bluetooth, Sound, Power).
+    let system = SystemServices()
     /// The Daily Briefing (briefing.json), pushed in like `preferences`. Never
     /// touches `layout`: the Briefing has its own list and sizes. Turning it off
     /// while its tab is selected returns to the Overview.
@@ -41,6 +45,8 @@ final class DashboardModel {
         DashboardSection.allCases.filter { $0 != .briefing || briefing.dailyBriefingEnabled }
     }
     let registry: WidgetRegistry
+    /// The Context Engine's suggestions for the Overview (Milestone 17; set by the app).
+    @ObservationIgnored var context: ContextEngine?
     private(set) var layout: WidgetLayout
     private let store: WidgetLayoutStore
     private let noticeDuration: Duration
@@ -99,6 +105,8 @@ final class DashboardModel {
     func setPresentation(_ id: WidgetID, _ presentation: WidgetPresentation) { update { $0.setPresentation(id, presentation) } }
     func move(_ id: WidgetID, to index: Int) { update { $0.move(id, to: index) } }
     func resetLayout() { apply(.defaults(for: registry.metadata)) }
+    /// A workspace's saved Overview (Milestone 16); unknown widgets are dropped, new ones keep their defaults.
+    func useLayout(_ saved: WidgetLayout) { apply(saved) }
 
     private func update(_ change: (inout WidgetLayout) -> Void) {
         var changed = layout

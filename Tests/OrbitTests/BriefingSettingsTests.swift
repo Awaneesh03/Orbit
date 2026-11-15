@@ -13,7 +13,7 @@ private func registry() throws -> WidgetRegistry {
         FakeWidget("battery"),
         FakeWidget("tasks", presentations: [.compact, .expanded]),
         FakeWidget("goals", enabledByDefault: false),
-        FakeWidget("events", presentations: [.compact, .expanded]),
+        FakeWidget("news", presentations: [.compact, .expanded]),
     ])
 }
 
@@ -30,17 +30,20 @@ private func wired(_ temp: TemporaryDirectory) throws -> (BriefingPreferencesMod
 
 @Test func hidingAndShowingKeepsTheApprovedOrderAndSizes() {
     var briefing = BriefingPreferences()
-    briefing.setShown("events", false)
-    #expect(!briefing.isShown("events") && briefing.widgets == ["weather", "clock", "goals", "tasks"])
-    #expect(briefing.presentation(for: "events") == .expanded)  // hidden, its size kept
+    briefing.setShown("news", false)
+    #expect(!briefing.isShown("news") && briefing.widgets == ["weather", "tasks"])
+    #expect(briefing.presentation(for: "news") == .expanded)  // hidden, its size kept
     briefing.setShown("weather", false)
-    briefing.setShown("events", true)
+    briefing.setShown("news", true)
     briefing.setShown("weather", true)
     #expect(briefing.widgets == BriefingPreferences.defaultWidgets)  // back in their places
-    briefing.widgets.insert("future-widget", at: 2)
-    briefing.setShown("clock", false)
-    briefing.setShown("clock", true)
-    #expect(briefing.widgets == ["weather", "events", "clock", "future-widget", "goals", "tasks"])  // unknown ids stay
+    briefing.setShown("clock", true)  // offered, not shown by default: goes to its place in the order
+    briefing.setShown("goals", true)
+    #expect(briefing.widgets == ["weather", "news", "tasks", "goals", "clock"])
+    briefing.widgets.insert("future-widget", at: 3)
+    briefing.setShown("tasks", false)
+    briefing.setShown("tasks", true)
+    #expect(briefing.widgets == ["weather", "news", "tasks", "future-widget", "goals", "clock"])  // unknown ids stay
     briefing.setShown("clock", true)
     #expect(briefing.widgets.filter { $0 == "clock" }.count == 1)  // never twice
 }
@@ -55,16 +58,17 @@ private func wired(_ temp: TemporaryDirectory) throws -> (BriefingPreferencesMod
     briefing.update { $0.dailyBriefingEnabled = true }
     #expect(dashboard.visibleSections.contains(.briefing))  // the tab appears at once
     dashboard.section = .briefing
-    briefing.update { $0.setShown("clock", false) }
-    briefing.update { $0.setPresentation(.compact, for: "events") }
-    #expect(dashboard.briefingWidgets.map(\.id) == ["weather", "events", "goals", "tasks"])
-    #expect(dashboard.briefingWidgets.map(\.presentation) == [.compact, .compact, .compact, .compact])
+    briefing.update { $0.setShown("goals", true) }
+    briefing.update { $0.setShown("tasks", false) }
+    briefing.update { $0.setPresentation(.compact, for: "news") }
+    #expect(dashboard.briefingWidgets.map(\.id) == ["weather", "news", "goals"])
+    #expect(dashboard.briefingWidgets.map(\.presentation) == [.compact, .compact, .compact])
     briefing.update { $0.setPresentation(.expanded, for: "goals") }  // goals has one size
     #expect(dashboard.briefingWidgets.first { $0.id == "goals" }?.presentation == .compact)
 
     let reopened = BriefingPreferencesModel(file: BriefingPreferencesModel.file(in: temp.url))  // a relaunch
-    #expect(reopened.value.dailyBriefingEnabled && !reopened.value.isShown("clock"))
-    #expect(reopened.value.presentation(for: "events") == .compact)
+    #expect(reopened.value.dailyBriefingEnabled && !reopened.value.isShown("tasks") && reopened.value.isShown("goals"))
+    #expect(reopened.value.presentation(for: "news") == .compact)
 
     briefing.update { $0.dailyBriefingEnabled = false }  // turned off while viewing it
     #expect(dashboard.section == .overview && !dashboard.visibleSections.contains(.briefing))
@@ -90,7 +94,7 @@ private func wired(_ temp: TemporaryDirectory) throws -> (BriefingPreferencesMod
     briefing.resetAll()
     #expect(briefing.value == BriefingPreferences() && dashboard.briefing == BriefingPreferences())
     #expect(dashboard.section == .overview)  // reset turns it off again: back to the Overview
-    #expect(dashboard.briefingWidgets.map(\.presentation) == [.compact, .expanded, .compact, .compact, .compact])
+    #expect(dashboard.briefingWidgets.map(\.presentation) == [.compact, .expanded, .compact])
     #expect(try BriefingPreferencesModel.file(in: temp.url).load() == BriefingPreferences())  // saved
     #expect(try Data(contentsOf: preferencesFile.url) == preferencesBytes && storage.data == layoutBytes)
     #expect(try FileManager.default.contentsOfDirectory(atPath: temp.url.path(percentEncoded: false)).sorted()

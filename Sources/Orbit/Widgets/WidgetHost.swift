@@ -111,7 +111,7 @@ struct WidgetGrid: View {
             let rows = WidgetGridPacking.rows(spans: widgets.map(\.presentation.span), columns: columns)
             let visibleRows = CGFloat(min(max(rows.count, 1), 2))
             let rowHeight = max(0, (geometry.size.height - spacing * (visibleRows - 1)) / visibleRows)
-            ScrollView {
+            HubScroll(indicators: .never) {
                 VStack(spacing: spacing) {
                     ForEach(rows.indices, id: \.self) { rowIndex in
                         HStack(spacing: spacing) {
@@ -126,7 +126,6 @@ struct WidgetGrid: View {
                     }
                 }
             }
-            .scrollIndicators(.never)
             .scrollBounceBehavior(.basedOnSize)  // a grid that fits never rubber-bands (e.g. after a card's list ends)
         }
     }

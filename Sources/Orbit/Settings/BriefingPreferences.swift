@@ -7,16 +7,22 @@ import Observation
 /// never changes the Overview's layout.
 struct BriefingPreferences: Codable, Equatable, Sendable {
     static let fileName = "briefing.json"
-    static let currentVersion = 2
-    /// The widgets the briefing is made of, in order, two rows of three cells:
-    /// Weather, Calendar (expanded); Clock, Daily Goals, Tasks (all compact:
-    /// expanded Tasks already lists the goals).
-    static let defaultWidgets: [WidgetID] = ["weather", "events", "clock", "goals", "tasks"]
+    static let currentVersion = 3
+    /// Every widget the Briefing offers (Settings lists them), in their order.
+    /// Version 3 replaced Calendar with Tech News at the user's request
+    /// (docs/ORBIT_ROADMAP.md, M3).
+    static let availableWidgets: [WidgetID] = ["weather", "news", "tasks", "goals", "clock", "linkedin", "digest"]
+    /// Shown by default, filling the dashboard without scrolling: Tech News
+    /// (expanded) is the feature, two rows tall, with Weather and Tasks
+    /// stacked beside it. Daily Goals and Clock can be turned on in Settings.
+    static let defaultWidgets: [WidgetID] = ["weather", "news", "tasks"]
+    /// Version 2's list: files that still have it move to the current one.
+    static let version2Widgets: [WidgetID] = ["weather", "events", "clock", "goals", "tasks"]
     /// Version 1's list (never shown in Settings): files that still have it move to the new one.
     static let version1Widgets: [WidgetID] = ["clock", "weather", "events", "tasks"]
     /// Per-widget size, in `options[id]`; absent means compact.
     static let presentationKey = "presentation"
-    static let defaultOptions: [WidgetID: [String: String]] = ["events": [presentationKey: WidgetPresentation.expanded.rawValue]]
+    static let defaultOptions: [WidgetID: [String: String]] = ["news": [presentationKey: WidgetPresentation.expanded.rawValue]]
 
     var version = currentVersion
     var dailyBriefingEnabled = false
@@ -43,8 +49,8 @@ struct BriefingPreferences: Codable, Equatable, Sendable {
     mutating func setShown(_ id: WidgetID, _ shown: Bool) {
         guard shown != isShown(id) else { return }
         guard shown else { return widgets.removeAll { $0 == id } }
-        let rank = Self.defaultWidgets.firstIndex(of: id) ?? Self.defaultWidgets.count
-        let next = widgets.firstIndex { (Self.defaultWidgets.firstIndex(of: $0) ?? Int.max) > rank } ?? widgets.count
+        let rank = Self.availableWidgets.firstIndex(of: id) ?? Self.availableWidgets.count
+        let next = widgets.firstIndex { (Self.availableWidgets.firstIndex(of: $0) ?? Int.max) > rank } ?? widgets.count
         widgets.insert(id, at: next)
     }
 
@@ -52,7 +58,9 @@ struct BriefingPreferences: Codable, Equatable, Sendable {
     /// field is kept and unknown keys (from newer versions) are ignored.
     /// Version 1 (or no version) with version 1's default list moves to the
     /// current defaults, keeping any other options; a customised list is kept.
-    /// Nothing is written by decoding: the file changes only when a preference does.
+    /// Before version 3, Calendar ("events") leaves the Briefing: Tech News
+    /// takes its place and its size. Nothing is written by decoding: the file
+    /// changes only when a preference does.
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = BriefingPreferences()
@@ -63,8 +71,18 @@ struct BriefingPreferences: Codable, Equatable, Sendable {
         widgets = storedWidgets ?? defaults.widgets
         options = storedOptions ?? defaults.options
         version = max(fileVersion, Self.currentVersion)
-        guard fileVersion < Self.currentVersion, storedWidgets == nil || storedWidgets == Self.version1Widgets else { return }
-        widgets = defaults.widgets
+        guard fileVersion < Self.currentVersion else { return }
+        // Calendar's size, if the file set one, carries over to Tech News.
+        let calendarSize = options["events"]?[Self.presentationKey]
+        if storedWidgets == nil || (fileVersion < 2 && storedWidgets == Self.version1Widgets)
+            || storedWidgets == Self.version2Widgets {
+            widgets = defaults.widgets
+        } else if let index = widgets.firstIndex(of: "events") {
+            if widgets.contains("news") { widgets.remove(at: index) } else { widgets[index] = "news" }
+        }
+        if options["news"]?[Self.presentationKey] == nil, let calendarSize {
+            options["news", default: [:]][Self.presentationKey] = calendarSize
+        }
         for (id, values) in Self.defaultOptions {  // the new sizes, without overwriting a setting the file has
             for (key, value) in values where options[id]?[key] == nil { options[id, default: [:]][key] = value }
         }

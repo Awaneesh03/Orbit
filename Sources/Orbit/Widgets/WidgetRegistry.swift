@@ -47,6 +47,8 @@ struct WidgetRegistry {
                         didLaunch: @escaping @MainActor () -> Void) -> WidgetRegistry {
         func file<Value>(_ name: String) -> JSONFile<Value> { JSONFile(url: dataDirectory.appending(path: name)) }
         let goals = GoalsWidget(file: file("goals.json"))
+        let tasks = TasksWidget(file: file("tasks.json"), goals: goals)
+        let pomodoro = PomodoroWidget(file: file("pomodoro.json"))
         do {
             return try WidgetRegistry([
                 ClockWidget(),
@@ -55,16 +57,28 @@ struct WidgetRegistry {
                               cache: DataCache(file: file("weather-cache.json")), location: CoreLocationProvider()),
                 BatteryWidget(),
                 QuickActionsWidget(perform: perform),
-                TasksWidget(file: file("tasks.json"), goals: goals),
-                PomodoroWidget(file: file("pomodoro.json")),
+                tasks,
+                pomodoro,
                 goals,
+                WeeklyInsightsWidget(tasks: tasks, goals: goals, pomodoro: pomodoro),
+                DailyDigestWidget(file: file("digest.json")),
+                ClipboardWidget(),
+                QuickNoteWidget(file: file("quicknote.json")),
+                EyeBreakWidget(model: EyeBreakModel(file: file("eyebreak.json"))),
+                FileShelfWidget(shelf: FileShelf(file: file("shelf.json"),
+                                                 folder: dataDirectory.appending(path: "Shelf", directoryHint: .isDirectory))),
                 EventsWidget(store: EventKitStore(), settings: CalendarSettingsModel(file: file(CalendarSettingsModel.fileName))),
+                NewsWidget(source: NewsFeedSource(sources: NewsSource.curated, http: URLSessionWeatherHTTP()),
+                           cache: DataCache(file: file("news-cache.json"))),
+                LinkedInWidget(),
                 ProjectsWidget(root: projectsRoot, didLaunch: didLaunch),
                 GitHubWidget(),
                 VaultWidget(directory: dataDirectory.appending(path: "Vault", directoryHint: .isDirectory)),
                 SystemWidget(),
+                BrightnessWidget(),
                 StorageWidget(),
                 NetworkWidget(),
+                KeepAwakeWidget(),
                 AIChatWidget(file: file("ai.json")),
                 NowPlayingWidget(coordinator: {
                     let coordinator = PlaybackCoordinator()

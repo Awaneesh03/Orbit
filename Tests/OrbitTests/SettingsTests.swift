@@ -139,7 +139,10 @@ private func makeSettings(_ temp: TemporaryDirectory) -> (SettingsModel, MemoryL
     // Only the three choices: no state, position or animation.
     let json = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: file.url)) as? [String: Any])
     #expect(json.keys.filter { $0.localizedCaseInsensitiveContains("pet") || $0.contains("Companion") }.sorted()
-        == ["desktopPet", "notchCompanion", "orbitPet"])
+        == ["desktopPet", "notchCompanion", "orbitPet", "petLook"])
+    // The look (M7) is a choice too: a coat id and, from a photo, only colours (never the photo).
+    let look = try #require(json["petLook"] as? [String: Any])
+    #expect(Set(look.keys).isSubset(of: ["coat", "photoPrimary", "photoSecondary", "photoSpecies", "character", "name", "behavior", "showTestCharacters", "selectionVersion"]))
 }
 
 @MainActor @Test func anUnreadablePreferencesFileKeepsThePetOffAndIsNotOverwritten() throws {

@@ -2,8 +2,8 @@ import Testing
 @testable import Orbit
 
 private let builtInOrder = [
-    "clock", "weather", "battery", "quickActions", "tasks", "pomodoro", "goals", "events",
-    "projects", "github", "vault", "system", "storage", "network", "ai", "nowPlaying",
+    "clock", "weather", "battery", "quickActions", "tasks", "pomodoro", "goals", "weekly", "digest", "clipboard", "quickNote", "eyeBreak", "fileShelf", "events", "news", "linkedin",
+    "projects", "github", "vault", "system", "brightness", "storage", "network", "keepAwake", "ai", "nowPlaying",
 ]
 
 @MainActor @Test func builtInRegistryIsValidAndInDefaultOrder() {
