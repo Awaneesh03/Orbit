@@ -165,13 +165,15 @@ private let events: [PetModel.Event] = [.show, .hide, .click, .reactionEnded, .m
     #expect(pet.model.state == .idle)
     pet.clock.advance(.milliseconds(1))
     #expect(pet.model.state == .sleeping && pet.activity.isUserInactive)
-    #expect(pet.timers == 0)  // asleep: nothing scheduled anywhere
+    // Asleep: only the return probe (one idle-time read every 3 s; nothing animates). Before 10.1
+    // nothing at all was scheduled, so nothing but a click could wake it: the "stuck pet" bug.
+    #expect(pet.timers == 1 && pet.model.pendingTimers == 0)
     pet.clock.advance(.seconds(3600))
-    #expect(pet.model.state == .sleeping && pet.timers == 0)
+    #expect(pet.model.state == .sleeping && pet.timers == 1)  // an hour away: still asleep
 
-    pet.idle.input()
-    pet.activity.userActivity()  // the pointer moved
-    #expect(pet.model.state == .idle && pet.activity.pendingTimers == 1 && pet.model.pendingTimers == 1)
+    pet.idle.input()  // ordinary typing or pointing (no click on the pet)
+    pet.clock.advance(PetActivity.returnProbe)
+    #expect(pet.model.state == .idle && pet.activity.pendingTimers == 1 && pet.model.pendingTimers == 1)  // awake, wandering again
 
     pet.clock.advance(.seconds(120))
     #expect(pet.model.state == .sleeping)

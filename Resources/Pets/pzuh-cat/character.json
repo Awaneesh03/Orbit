@@ -1,0 +1,76 @@
+{
+  "id": "pzuh-cat",
+  "name": "Tabby",
+  "species": "cat",
+  "version": 1,
+  "kind": "sprites",
+  "production": true,
+  "facesRight": true,
+  "licence": {
+    "type": "CC0 1.0 (public domain dedication)",
+    "creator": "pzUH (OpenGameArt)",
+    "source": "https://opengameart.org/content/cat-dog-free-sprites",
+    "attribution": "“Cat & Dog Free Sprites” by pzUH, CC0. Cropped, scaled and packed for Orbit; sleeping frame derived (mouth closed).",
+    "commercialUse": true,
+    "redistribution": true,
+    "modification": true,
+    "cost": "free"
+  },
+  "clips": {
+    "idle": {
+      "file": "idle.png",
+      "frames": 10,
+      "fps": 10
+    },
+    "walk": {
+      "file": "walk.png",
+      "frames": 10,
+      "fps": 15
+    },
+    "run": {
+      "file": "run.png",
+      "frames": 8,
+      "fps": 16
+    },
+    "jump": {
+      "file": "jump.png",
+      "frames": 8,
+      "fps": 14
+    },
+    "fall": {
+      "file": "fall.png",
+      "frames": 8,
+      "fps": 12
+    },
+    "sit": {
+      "file": "sit.png",
+      "frames": 3,
+      "fps": 1.2
+    },
+    "sleep": {
+      "file": "sleep.png",
+      "frames": 1,
+      "fps": 1
+    }
+  },
+  "spriteStates": {
+    "idle": "idle",
+    "walking": "walk",
+    "running": "run",
+    "sleeping": "sleep",
+    "dragged": "fall",
+    "playful": "jump"
+  },
+  "spriteActions": {
+    "click": "jump",
+    "happy": "jump",
+    "attention": "jump",
+    "fidget": "idle",
+    "lookAround": "idle",
+    "activity": "idle",
+    "stretch": "sit",
+    "sit": "sit"
+  },
+  "states": {},
+  "actions": {}
+}

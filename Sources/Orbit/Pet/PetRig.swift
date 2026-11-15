@@ -31,6 +31,11 @@ struct PetColor: Equatable, Sendable {
 /// What the cat looks like: everything a later photo or customization step
 /// can change, with nothing about how it moves.
 struct PetAppearance: Equatable, Sendable {
+    /// Cat or dog: the same skeleton and motion, different head, ears, tail and eyes.
+    enum Species: String, CaseIterable, Codable, Sendable {
+        case cat, dog
+    }
+
     enum Marking: String, CaseIterable, Sendable {
         case muzzle, bib, socks, tailTip
     }
@@ -46,6 +51,7 @@ struct PetAppearance: Equatable, Sendable {
         var legs: CGFloat = 1
     }
 
+    var species = Species.cat
     var primary: PetColor
     var secondary: PetColor
     var eyes: PetColor
@@ -60,6 +66,33 @@ struct PetAppearance: Equatable, Sendable {
         primary: PetColor(red: 0.95, green: 0.62, blue: 0.34), secondary: PetColor(red: 1.0, green: 0.93, blue: 0.84),
         eyes: PetColor(red: 0.40, green: 0.76, blue: 0.46), pink: PetColor(red: 1.0, green: 0.60, blue: 0.64),
         markings: Set(Marking.allCases))
+
+    /// The coats Settings offers, by id, for each species.
+    static let presets: [(id: String, name: String, appearance: PetAppearance)] = [
+        ("ginger", "Ginger", .orbit),
+        ("tuxedo", "Tuxedo", PetAppearance(
+            primary: PetColor(red: 0.16, green: 0.16, blue: 0.18), secondary: PetColor(red: 0.96, green: 0.96, blue: 0.95),
+            eyes: PetColor(red: 0.86, green: 0.74, blue: 0.30), pink: PetColor(red: 0.96, green: 0.62, blue: 0.66),
+            markings: [.muzzle, .bib, .socks])),
+        ("silver", "Silver Tabby", PetAppearance(
+            primary: PetColor(red: 0.62, green: 0.64, blue: 0.68), secondary: PetColor(red: 0.92, green: 0.92, blue: 0.93),
+            eyes: PetColor(red: 0.42, green: 0.66, blue: 0.82), pink: PetColor(red: 0.95, green: 0.64, blue: 0.68),
+            markings: [.muzzle, .bib])),
+        ("golden", "Golden Retriever", PetAppearance(
+            species: .dog, primary: PetColor(red: 0.86, green: 0.62, blue: 0.32), secondary: PetColor(red: 0.98, green: 0.86, blue: 0.64),
+            eyes: PetColor(red: 0.38, green: 0.24, blue: 0.14), pink: PetColor(red: 0.90, green: 0.50, blue: 0.52),
+            markings: [.muzzle, .bib], proportions: Proportions(ears: 1, tail: 1.1, legs: 1.05))),
+        ("beagle", "Beagle", PetAppearance(
+            species: .dog, primary: PetColor(red: 0.62, green: 0.40, blue: 0.22), secondary: PetColor(red: 0.98, green: 0.96, blue: 0.92),
+            eyes: PetColor(red: 0.30, green: 0.18, blue: 0.10), pink: PetColor(red: 0.90, green: 0.52, blue: 0.54),
+            markings: [.muzzle, .bib, .socks, .tailTip])),
+        ("greywhite", "Grey & White", PetAppearance(
+            species: .dog, primary: PetColor(red: 0.40, green: 0.42, blue: 0.46), secondary: PetColor(red: 0.97, green: 0.97, blue: 0.98),
+            eyes: PetColor(red: 0.45, green: 0.72, blue: 0.95), pink: PetColor(red: 0.90, green: 0.55, blue: 0.58),
+            markings: [.muzzle, .bib, .socks, .tailTip])),
+    ]
+
+    static func preset(_ id: String) -> PetAppearance? { presets.first { $0.id == id }?.appearance }
 }
 
 // MARK: Pose
@@ -134,8 +167,16 @@ final class PetRig {
     private(set) var reduceMotion = false
     private(set) var pose = PetPose()
     /// One-shots actually played (tests, diagnostics).
+    /// A Rive character drawn in place of the vector cat (Milestone 10); nil: the vector pet.
+    private(set) var skin: (any PetSkin)?
+    /// The host view puts the skin's view in place (desktop window, notch companion).
+    var onSkinChange: (() -> Void)?
     private(set) var fidgetsPlayed = 0
+    private(set) var gesturesPlayed = 0
     private(set) var reactionsPlayed = 0
+    /// What the agents are doing, tinting the resting pose (Notch Companion only; the Desktop Pet keeps none).
+    private(set) var mood = AgentMood.none
+    private(set) var cuesPlayed = 0
 
     init(appearance: PetAppearance = .orbit, size: CGFloat = 96) {
         self.appearance = appearance
@@ -163,10 +204,60 @@ final class PetRig {
         for part in rasterizedParts { part.rasterizationScale = screenScale * size / Self.design.width }
     }
 
+    /// Draws `newSkin` instead of the vector figure, or the vector figure again
+    /// (nil). The skin gets the current state and facing at once; the rig keeps
+    /// all its state, so detaching is instant and nothing is lost.
+    func attach(_ newSkin: (any PetSkin)?) {
+        guard newSkin !== skin else { return }
+        skin?.setVisible(false)
+        skin?.view.removeFromSuperview()
+        skin = newSkin
+        Self.quietly { content.isHidden = newSkin != nil }
+        if let newSkin {
+            newSkin.view.isHidden = state == nil || state == .hidden
+            newSkin.setFacing(facing)
+            if let state { newSkin.apply(state, reduceMotion: reduceMotion) }
+        }
+        onSkinChange?()
+    }
+
+    /// A new look (species, coat, a photo's colours): the parts are redrawn,
+    /// the current state and pose kept. Nothing runs while it's rebuilt.
+    func setAppearance(_ newAppearance: PetAppearance) {
+        guard newAppearance != appearance else { return }
+        appearance = newAppearance
+        let parts: [CALayer] = [figure, shadow, body, head, leftEar, rightEar, tail, tailStroke, tailTip, happyEyes, closedEyes,
+                                mouth, accessory] + legs + eyes + lids + whiskers
+        let scale = rasterizedParts.first?.rasterizationScale ?? 2 * size / Self.design.width
+        Self.quietly {
+            for part in parts {
+                part.removeAllAnimations()
+                part.removeFromSuperlayer()
+                part.sublayers = nil
+                part.mask = nil
+                part.transform = CATransform3DIdentity
+                part.opacity = 1
+            }
+            for whisker in whiskers { whisker.path = nil }
+            content.sublayers = nil
+            build()
+            layOut()
+            for part in rasterizedParts {
+                part.shouldRasterize = true
+                part.rasterizationScale = scale
+            }
+        }
+        let shown = state
+        state = nil
+        pose = PetPose()
+        if let shown { apply(shown, reduceMotion: reduceMotion) }
+    }
+
     func setFacing(_ newFacing: PetFacing) {
         guard newFacing != facing else { return }
         facing = newFacing
         layOut()
+        skin?.setFacing(newFacing)
     }
 
     /// Sharp vector edges at the screen's scale (and when drawn larger than the design).
@@ -202,6 +293,8 @@ final class PetRig {
         let wasShown = state != nil && state != .hidden
         state = newState
         reduceMotion = newReduce
+        skin?.apply(newState, reduceMotion: newReduce)
+        skin?.view.isHidden = newState == .hidden  // hidden means gone, not a frozen frame
         guard newState != .hidden else {
             Self.quietly { root.isHidden = true }  // no implicit fade: hidden means nothing animating
             Self.walk(root) { $0.removeAllAnimations() }
@@ -211,7 +304,7 @@ final class PetRig {
             for key in layer.animationKeys() ?? [] where !key.hasPrefix(Self.posePrefix) { layer.removeAnimation(forKey: key) }
         }
         Self.quietly { root.isHidden = false }
-        let next = Self.pose(for: newState)
+        let next = Self.pose(for: newState, mood: mood)
         let ease = wasShown && !newReduce
         if wasShown, newReduce {
             let fade = CATransition()
@@ -230,11 +323,50 @@ final class PetRig {
     func playFidget(_ count: Int) {
         guard state == .idle, !reduceMotion else { return }
         fidgetsPlayed += 1
+        skin?.perform("fidget")
         for lid in lids { oneShot(lid, "cue.blink", "transform.scale.y", [0.001, 1, 0.001], duration: 0.22, additive: false) }
         switch count % 3 {
         case 1: oneShot(leftEar, "cue.ear", "transform.rotation.z", [0, -0.28, 0.08, 0], duration: 0.4)
         case 2: oneShot(head, "cue.head", "transform.rotation.z", [0, -0.07, -0.07, 0], duration: 0.9)
-        default: oneShot(tail, "cue.tail", "transform.rotation.z", [0, 0.22, -0.1, 0], duration: 0.7)
+        default:
+            // A dog wags; a cat flicks.
+            let swing: [CGFloat] = appearance.species == .dog ? [0, 0.3, -0.25, 0.3, -0.2, 0] : [0, 0.22, -0.1, 0]
+            oneShot(tail, "cue.tail", "transform.rotation.z", swing, duration: appearance.species == .dog ? 0.9 : 0.7)
+        }
+        if count > 0, count % 4 == 0 { playGesture(count / 4) }
+    }
+
+    /// The bigger idle gestures, one every fourth fidget (about every half
+    /// minute), each a single one-shot under 2.6 s: looking around, a full
+    /// stretch, sitting down for a moment. Still in between, like the cues.
+    func playGesture(_ index: Int) {
+        guard state == .idle, !reduceMotion else { return }
+        gesturesPlayed += 1
+        skin?.perform(["lookAround", "stretch", "sit"][index % 3])
+        switch index % 3 {
+        case 0:  // look left, then right, eyes leading the head
+            oneShot(head, "gesture.look", "transform.rotation.z", [0, 0.09, 0.09, -0.07, -0.07, 0], duration: 2.2,
+                    keyTimes: [0, 0.18, 0.42, 0.58, 0.85, 1])
+            for eye in eyes {
+                oneShot(eye, "gesture.eyes", "transform.translation.x", [0, -1.2, -1.2, 1.2, 1.2, 0], duration: 2.2,
+                        keyTimes: [0, 0.14, 0.42, 0.55, 0.85, 1])
+            }
+        case 1:  // stretch: front paws forward, body long, head low, then back
+            oneShot(body, "gesture.stretch", "transform.scale.x", [1, 1.08, 1.08, 1], duration: 2, additive: false,
+                    keyTimes: [0, 0.3, 0.75, 1])
+            for leg in [legs[2], legs[3]] {
+                oneShot(leg, "gesture.reach", "transform.rotation.z", [0, -0.42, -0.42, 0], duration: 2, keyTimes: [0, 0.3, 0.75, 1])
+            }
+            oneShot(head, "gesture.stretch", "transform.translation.y", [0, 5, 5, 0], duration: 2, keyTimes: [0, 0.3, 0.75, 1])
+            oneShot(tail, "gesture.stretch", "transform.rotation.z", [0, -0.25, -0.25, 0], duration: 2, keyTimes: [0, 0.3, 0.75, 1])
+        default:  // sit: haunches down, chest up, tail curled round
+            for leg in [legs[0], legs[1]] {
+                oneShot(leg, "gesture.sit", "transform.scale.y", [1, 0.5, 0.5, 1], duration: 2.5, additive: false,
+                        keyTimes: [0, 0.2, 0.8, 1])
+            }
+            oneShot(body, "gesture.sit", "transform.rotation.z", [0, -0.16, -0.16, 0], duration: 2.5, keyTimes: [0, 0.2, 0.8, 1])
+            oneShot(head, "gesture.sit", "transform.translation.y", [0, -3, -3, 0], duration: 2.5, keyTimes: [0, 0.2, 0.8, 1])
+            oneShot(tail, "gesture.sit", "transform.rotation.z", [0, 0.35, 0.35, 0], duration: 2.5, keyTimes: [0, 0.2, 0.8, 1])
         }
     }
 
@@ -244,6 +376,7 @@ final class PetRig {
     func playReaction() {
         guard state == .playful, !reduceMotion else { return }
         reactionsPlayed += 1
+        skin?.perform("click")
         let hops: [CGFloat] = [0, -13, 0, -6, 0]
         let times: [NSNumber] = [0, 0.22, 0.45, 0.62, 0.8]
         oneShot(figure, "react.hop", "transform.translation.y", hops, duration: 1.1, keyTimes: times)
@@ -462,7 +595,7 @@ final class PetRig {
             layer.frame = tail.bounds
             layer.fillColor = nil
             layer.strokeColor = color.cg()
-            layer.lineWidth = 9 * a.proportions.tail
+            layer.lineWidth = (a.species == .dog ? 10.5 : 9) * a.proportions.tail
             layer.lineCap = .round
             tail.addSublayer(layer)
         }
@@ -508,10 +641,14 @@ final class PetRig {
         joint(head, frame: CGRect(x: 64, y: 4, width: 54, height: 58), pivot: CGPoint(x: 82, y: 54), in: figure)
         joint(accessory, frame: CGRect(x: 72, y: 48, width: 22, height: 10), pivot: CGPoint(x: 83, y: 53), in: head)
         for (ear, mirror) in [(leftEar, false), (rightEar, true)] {
-            let pivot = mirror ? CGPoint(x: 103, y: 25) : CGPoint(x: 79, y: 25)
-            joint(ear, frame: CGRect(x: pivot.x - 11, y: pivot.y - 21, width: 22, height: 24), pivot: pivot, in: head)
-            fill(local(earPath(mirror: mirror, inset: 0), in: ear), [coat.lighter(0.1), coat], in: ear, edge: edge)
-            fill(local(earPath(mirror: mirror, inset: 3.6), in: ear), [a.pink.lighter(0.1), a.pink.darker(0.05)], in: ear)
+            if a.species == .dog {
+                continue  // floppy ears hang in front of the head: added after it
+            } else {
+                let pivot = mirror ? CGPoint(x: 103, y: 25) : CGPoint(x: 79, y: 25)
+                joint(ear, frame: CGRect(x: pivot.x - 11, y: pivot.y - 21, width: 22, height: 24), pivot: pivot, in: head)
+                fill(local(earPath(mirror: mirror, inset: 0), in: ear), [coat.lighter(0.1), coat], in: ear, edge: edge)
+                fill(local(earPath(mirror: mirror, inset: 3.6), in: ear), [a.pink.lighter(0.1), a.pink.darker(0.05)], in: ear)
+            }
         }
         let headPath = CGMutablePath()
         headPath.move(to: CGPoint(x: 91, y: 17))
@@ -520,14 +657,36 @@ final class PetRig {
         headPath.addCurve(to: CGPoint(x: 69, y: 39), control1: CGPoint(x: 79, y: 57), control2: CGPoint(x: 69, y: 51))
         headPath.addCurve(to: CGPoint(x: 91, y: 17), control1: CGPoint(x: 69, y: 26), control2: CGPoint(x: 78, y: 17))
         headPath.closeSubpath()
+        if a.species == .cat {  // cheek ruffs: the head's silhouette reads as fur, not a ball
+            let ruff = CGMutablePath()
+            for mirror in [false, true] {
+                func m(_ p: CGPoint) -> CGPoint { mirror ? CGPoint(x: 182 - p.x, y: p.y) : p }
+                ruff.move(to: m(CGPoint(x: 71, y: 40)))
+                ruff.addLine(to: m(CGPoint(x: 66.5, y: 45)))
+                ruff.addLine(to: m(CGPoint(x: 71.5, y: 46)))
+                ruff.addLine(to: m(CGPoint(x: 68, y: 51)))
+                ruff.addLine(to: m(CGPoint(x: 75, y: 51)))
+                ruff.closeSubpath()
+            }
+            fill(local(ruff, in: head), [coat, coat.darker(0.06)], in: head)
+        }
         fill(local(headPath, in: head), [coat.lighter(0.16), coat, coat.darker(0.06)], in: head, edge: edge)
+        if a.species == .dog {  // the snout, forward and a little down, with its own soft shading
+            fill(local(CGPath(roundedRect: CGRect(x: 81, y: 37, width: 24, height: 17), cornerWidth: 8.5, cornerHeight: 8.5, transform: nil), in: head),
+                 [cream.lighter(0.04), cream.darker(0.1)], in: head, edge: edge)
+            for (ear, mirror) in [(leftEar, false), (rightEar, true)] {  // floppy, hung from the crown, pivoting at the root
+                let pivot = mirror ? CGPoint(x: 105, y: 22) : CGPoint(x: 77, y: 22)
+                joint(ear, frame: CGRect(x: pivot.x - 12, y: pivot.y - 4, width: 24, height: 30), pivot: pivot, in: head)
+                fill(local(dogEarPath(mirror: mirror), in: ear), [coat.darker(0.06), coat.darker(0.24)], in: ear, edge: edge)
+            }
+        }
         fill(local(CGPath(ellipseIn: CGRect(x: 80, y: 19, width: 22, height: 6), transform: nil), in: head),
              [PetColor.white, PetColor.white], alphas: [0.24, 0], in: head)
-        if a.markings.contains(.muzzle) {
+        if a.markings.contains(.muzzle), a.species == .cat {
             fill(local(CGPath(ellipseIn: CGRect(x: 81.5, y: 40, width: 19, height: 14), transform: nil), in: head),
                  [cream, cream.darker(0.04)], in: head)
         }
-        for x: CGFloat in [74.5, 100.5] {  // blush
+        for x: CGFloat in [74.5, 100.5] where a.species == .cat {  // blush
             fill(local(CGPath(ellipseIn: CGRect(x: x, y: 42, width: 7, height: 4), transform: nil), in: head),
                  [a.pink, a.pink], alphas: [0.5, 0.5], in: head)
         }
@@ -550,7 +709,9 @@ final class PetRig {
             iris.endPoint = CGPoint(x: 1.05, y: 1.1)
             eye.addSublayer(iris)
             let pupil = CAShapeLayer()
-            pupil.path = CGPath(ellipseIn: CGRect(x: 2.6, y: 1.6, width: 4, height: 8.2), transform: nil)
+            pupil.path = a.species == .dog
+                ? CGPath(ellipseIn: CGRect(x: 1.9, y: 2.9, width: 5.4, height: 5.4), transform: nil)  // round
+                : CGPath(ellipseIn: CGRect(x: 2.6, y: 1.6, width: 4, height: 8.2), transform: nil)  // a cat's slit
             pupil.fillColor = PetColor(red: 0.12, green: 0.1, blue: 0.12).cg()
             eye.addSublayer(pupil)
             for (spot, radius) in [(CGPoint(x: 5.8, y: 3.2), CGFloat(1.5)), (CGPoint(x: 3.2, y: 7.6), CGFloat(0.75))] {
@@ -588,13 +749,26 @@ final class PetRig {
         nose.addQuadCurve(to: CGPoint(x: 91, y: 44.8), control: CGPoint(x: 93.2, y: 43.6))
         nose.addQuadCurve(to: CGPoint(x: 88.6, y: 42), control: CGPoint(x: 88.8, y: 43.6))
         nose.closeSubpath()
-        fill(local(nose, in: head), [a.pink.lighter(0.15), a.pink.darker(0.1)], in: head)
+        if a.species == .dog {
+            fill(local(CGPath(roundedRect: CGRect(x: 96.5, y: 38.5, width: 9, height: 6.5), cornerWidth: 3, cornerHeight: 3, transform: nil), in: head),
+                 [PetColor(red: 0.24, green: 0.2, blue: 0.2), PetColor(red: 0.08, green: 0.07, blue: 0.08)], in: head)
+        } else {
+            fill(local(nose, in: head), [a.pink.lighter(0.15), a.pink.darker(0.1)], in: head)
+        }
         let mouthPath = CGMutablePath()
-        mouthPath.move(to: CGPoint(x: 91, y: 44.8))
-        mouthPath.addLine(to: CGPoint(x: 91, y: 46.2))
-        mouthPath.move(to: CGPoint(x: 87.8, y: 46.4))
-        mouthPath.addQuadCurve(to: CGPoint(x: 91, y: 46.2), control: CGPoint(x: 89.4, y: 48.2))
-        mouthPath.addQuadCurve(to: CGPoint(x: 94.2, y: 46.4), control: CGPoint(x: 92.6, y: 48.2))
+        if a.species == .dog {  // under the snout's nose: a short line and a soft smile
+            mouthPath.move(to: CGPoint(x: 101, y: 45))
+            mouthPath.addLine(to: CGPoint(x: 101, y: 47.5))
+            mouthPath.move(to: CGPoint(x: 94, y: 48.5))
+            mouthPath.addQuadCurve(to: CGPoint(x: 101, y: 47.5), control: CGPoint(x: 97.5, y: 51))
+            mouthPath.addQuadCurve(to: CGPoint(x: 105, y: 48), control: CGPoint(x: 103.5, y: 50.5))
+        } else {
+            mouthPath.move(to: CGPoint(x: 91, y: 44.8))
+            mouthPath.addLine(to: CGPoint(x: 91, y: 46.2))
+            mouthPath.move(to: CGPoint(x: 87.8, y: 46.4))
+            mouthPath.addQuadCurve(to: CGPoint(x: 91, y: 46.2), control: CGPoint(x: 89.4, y: 48.2))
+            mouthPath.addQuadCurve(to: CGPoint(x: 94.2, y: 46.4), control: CGPoint(x: 92.6, y: 48.2))
+        }
         mouth.frame = head.bounds
         mouth.path = local(mouthPath, in: head)
         mouth.fillColor = nil
@@ -603,7 +777,7 @@ final class PetRig {
         mouth.lineCap = .round
         mouth.lineJoin = .round
         head.addSublayer(mouth)
-        for (index, mirror) in [false, true].enumerated() {
+        for (index, mirror) in [false, true].enumerated() where a.species == .cat {
             let whisker = whiskers[index]
             let pivot = CGPoint(x: mirror ? 99 : 83, y: 45)
             let origin = origin(of: head)
@@ -635,6 +809,18 @@ final class PetRig {
         path.move(to: m(base1))
         path.addQuadCurve(to: m(tip), control: m(CGPoint(x: 70.2 + inset, y: 14)))
         path.addQuadCurve(to: m(base2), control: m(CGPoint(x: 82 - inset * 0.4, y: 11 + inset)))
+        path.closeSubpath()
+        return path
+    }
+
+    /// A dog's soft ear, hanging from its root beside the crown.
+    private func dogEarPath(mirror: Bool) -> CGPath {
+        func m(_ p: CGPoint) -> CGPoint { mirror ? CGPoint(x: 182 - p.x, y: p.y) : p }
+        let path = CGMutablePath()
+        path.move(to: m(CGPoint(x: 71, y: 20)))
+        path.addCurve(to: m(CGPoint(x: 70, y: 46)), control1: m(CGPoint(x: 64, y: 26)), control2: m(CGPoint(x: 63, y: 42)))
+        path.addCurve(to: m(CGPoint(x: 81, y: 40)), control1: m(CGPoint(x: 75, y: 50)), control2: m(CGPoint(x: 81, y: 46)))
+        path.addCurve(to: m(CGPoint(x: 71, y: 20)), control1: m(CGPoint(x: 82, y: 30)), control2: m(CGPoint(x: 78, y: 21)))
         path.closeSubpath()
         return path
     }
@@ -740,15 +926,31 @@ final class PetRigView: NSView {
         super.init(frame: CGRect(origin: .zero, size: rig.root.bounds.size))
         wantsLayer = true
         layer?.addSublayer(rig.root)
+        rig.onSkinChange = { [weak self] in self?.installSkin() }
+        installSkin()
+    }
+
+    /// The Rive character's view over the rig's place (or none).
+    func installSkin() {
+        guard let view = rig.skin?.view else { return }
+        if view.superview !== self { addSubview(view) }
+        view.frame = rig.root.frame
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("not used") }
 
     override var intrinsicContentSize: NSSize { rig.root.bounds.size }
 
+    /// The character's view only draws: clicks land where they did before it existed.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === rig.skin?.view ? self : hit
+    }
+
     override func layout() {
         super.layout()
         PetRig.quietly { rig.root.position = CGPoint(x: bounds.midX, y: bounds.midY) }
+        rig.skin?.view.frame = rig.root.frame
     }
 
     override func viewDidChangeBackingProperties() {
@@ -819,6 +1021,70 @@ final class PetCharacter {
         if model.fidgets != fidgets {
             fidgets = model.fidgets
             rig.playFidget(fidgets)
+        }
+    }
+}
+
+// MARK: Agent reactions (Notch Companion, docs/AI_HUB_SPEC.md §22)
+
+extension PetRig {
+    /// The resting pose, tinted by the agents' mood. Idle only: walking,
+    /// sleeping or a click reaction keep their own pose. All static — a mood
+    /// never adds continuous motion.
+    nonisolated static func pose(for state: PetModel.State, mood: AgentMood) -> PetPose {
+        var pose = pose(for: state)
+        guard state == .idle else { return pose }
+        switch mood {
+        case .none: break
+        case .working: pose.headDrop = 1.5; pose.eyelids = 0.18  // focused
+        case .needsYou: pose.headTilt = -0.1; pose.earsBack = -0.25  // perked up, looking your way
+        case .failed: pose.headDrop = 2; pose.earsBack = 0.45; pose.eyelids = 0.35  // a little down
+        }
+        return pose
+    }
+
+    /// Eases into the mood's pose (at once with Reduce Motion).
+    /// Agent cues as character actions: working, attention, a happy finish, a concerned failure.
+    nonisolated static func skinAction(for cue: AgentCue) -> String {
+        switch cue {
+        case .activity: "activity"
+        case .attention: "attention"
+        case .finished: "happy"
+        case .failed: "concerned"
+        }
+    }
+
+    func setMood(_ newMood: AgentMood) {
+        guard newMood != mood else { return }
+        mood = newMood
+        skin?.perform("mood.\(newMood.rawValue)")
+        guard let state, state != .hidden else { return }
+        let next = Self.pose(for: state, mood: newMood)
+        set(next, animated: !reduceMotion)
+        pose = next
+    }
+
+    /// One short reaction to an agent event; nothing while hidden or with
+    /// Reduce Motion (the island's words and symbols say it instead). The same
+    /// cue again replaces the running one rather than stacking.
+    func play(_ cue: AgentCue) {
+        guard let state, state != .hidden, !reduceMotion else { return }
+        cuesPlayed += 1
+        skin?.perform(Self.skinAction(for: cue))
+        switch cue {
+        case .activity:
+            oneShot(tail, "agent.tail", "transform.rotation.z", [0, 0.18, -0.08, 0], duration: 0.6)
+        case .attention:
+            oneShot(leftEar, "agent.ear", "transform.rotation.z", [0, -0.3, 0.1, -0.3, 0], duration: 0.7)
+            oneShot(rightEar, "agent.ear", "transform.rotation.z", [0, 0.3, -0.1, 0.3, 0], duration: 0.7)
+            oneShot(figure, "agent.hop", "transform.translation.y", [0, -5, 0], duration: 0.4)
+        case .finished:
+            oneShot(figure, "agent.hop", "transform.translation.y", [0, -10, 0, -4, 0], duration: 0.9)
+            oneShot(tail, "agent.tail", "transform.rotation.z", [0, 0.3, -0.25, 0.3, 0], duration: 0.9)
+        case .failed:
+            oneShot(figure, "agent.shake", "transform.translation.x", [0, -3, 3, -2, 2, 0], duration: 0.5)
+            oneShot(leftEar, "agent.ear", "transform.rotation.z", [0, 0.35, 0], duration: 0.6)
+            oneShot(rightEar, "agent.ear", "transform.rotation.z", [0, -0.35, 0], duration: 0.6)
         }
     }
 }

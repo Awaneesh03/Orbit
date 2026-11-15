@@ -244,6 +244,21 @@ final class DesktopPetView: NSView {
         super.init(frame: CGRect(origin: .zero, size: DesktopPetGeometry.windowSize(rigSize: rig.root.bounds.size)))
         wantsLayer = true
         layer?.addSublayer(rig.root)
+        rig.onSkinChange = { [weak self] in self?.installSkin() }
+        installSkin()
+    }
+
+    /// The Rive character's view over the rig's place, under the drag handling (this view).
+    func installSkin() {
+        guard let view = rig.skin?.view else { return }
+        if view.superview !== self { addSubview(view) }
+        view.frame = rig.root.frame
+    }
+
+    /// Clicks and drags go to this view, never the character's (it only draws).
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === rig.skin?.view ? self : hit
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("not used") }
@@ -253,6 +268,7 @@ final class DesktopPetView: NSView {
         PetRig.quietly {
             rig.root.position = CGPoint(x: bounds.midX, y: rig.root.bounds.height / 2 + 2)  // on the floor, room above for the hop
         }
+        rig.skin?.view.frame = rig.root.frame
     }
 
     override func viewDidChangeBackingProperties() {

@@ -75,6 +75,11 @@ final class PetModel {
     /// Click reactions so far: one one-shot per change.
     private(set) var reactions = 0
     var toggles = Toggles() { didSet { if toggles != oldValue { update() } } }
+    /// Roaming, idle gestures and how lively (Settings › Pet › Behaviour; Milestone 10).
+    var behavior = PetBehavior() { didSet { if behavior != oldValue { update() } } }
+    /// What the agents are doing, for this same cat to show in a later stage
+    /// (no second mascot). Set by the app from the AI Hub; changes no state yet.
+    var agentMood = AgentMood.none
 
     let activity: PetActivity
     @ObservationIgnored let timing: Timing
@@ -203,10 +208,10 @@ final class PetModel {
         fidgetTimer = nil
         wanderTimer = nil
         guard !reduceMotion else { return }
-        scheduleFidget()
-        guard canMove else { return }
+        if behavior.idleGestures { scheduleFidget() }
+        guard canMove, behavior.roaming else { return }
         let current = generation
-        wanderTimer = scheduler.after(timing.wander) { [weak self] in
+        wanderTimer = scheduler.after(behavior.liveliness.scale(timing.wander)) { [weak self] in
             self?.fired(current) { model in
                 model.wanderTimer = nil
                 model.startMoving(running: model.choosesRunning())
@@ -217,7 +222,7 @@ final class PetModel {
     /// The next idle cue; rescheduled on its own, so it never delays the wander.
     private func scheduleFidget() {
         let current = generation
-        fidgetTimer = scheduler.after(timing.fidget) { [weak self] in
+        fidgetTimer = scheduler.after(behavior.liveliness.scale(timing.fidget)) { [weak self] in
             self?.fired(current) { model in
                 model.fidgets += 1
                 model.scheduleFidget()
@@ -238,4 +243,49 @@ final class PetModel {
         fidgetTimer = nil
         wanderTimer = nil
     }
+}
+
+/// The agents' state as Orbit's pet would show it, most urgent first: someone
+/// needs you, then a recent failure, then work in progress. Real sessions only.
+/// How the pet behaves when left alone. Calm waits twice as long between
+/// gestures and walks; lively a little over half as long.
+struct PetBehavior: Codable, Equatable, Sendable {
+    enum Liveliness: String, Codable, CaseIterable, Sendable {
+        case calm, normal, lively
+        func scale(_ duration: Duration) -> Duration {
+            switch self {
+            case .calm: duration * 2
+            case .normal: duration
+            case .lively: duration * 0.6
+            }
+        }
+    }
+
+    var roaming = true
+    var idleGestures = true
+    var liveliness = Liveliness.normal
+}
+
+enum AgentMood: String, Sendable {
+    case none, working, needsYou, failed
+
+    /// A failure counts for `recent` seconds after its last event, then the pet lets it go.
+    static func of(_ sessions: some Sequence<AgentSession>, now: Date = .now, recent: TimeInterval = 600) -> AgentMood {
+        var mood = AgentMood.none
+        for session in sessions where !session.isDemo {
+            switch session.status {
+            case .waiting: return .needsYou
+            case .failed where now.timeIntervalSince(session.lastEventAt) < recent: mood = .failed
+            case .running where mood == .none: mood = .working
+            default: break
+            }
+        }
+        return mood
+    }
+}
+
+/// A one-shot reaction to an agent event (the Notch Companion's cat, §22):
+/// done within a second, never repeating, none with Reduce Motion.
+enum AgentCue: String, Sendable {
+    case activity, attention, finished, failed
 }

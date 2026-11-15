@@ -1,0 +1,31 @@
+{
+  "id": "test-interactive-dog",
+  "name": "Interactive Dog",
+  "species": "dog",
+  "version": 1,
+  "file": "character.riv",
+  "artboard": "dog-walk-cycle",
+  "stateMachine": "State Machine 1",
+  "production": false,
+  "facesRight": true,
+  "licence": {
+    "type": "CC BY 4.0",
+    "creator": "jouri (Rive Community)",
+    "source": "https://rive.app/marketplace/7994-15377-interactive-dog/",
+    "attribution": "“Interactive Dog” by jouri, CC BY 4.0, via the Rive Marketplace. Used unmodified for testing.",
+    "commercialUse": true,
+    "redistribution": true,
+    "modification": true,
+    "cost": "free"
+  },
+  "states": {
+    "idle": [{ "input": "Hit Tong", "kind": "bool", "value": 0 }, { "input": "Hit Staart", "kind": "bool", "value": 0 }, { "input": "Hit Oor", "kind": "bool", "value": 0 }],
+    "playful": [{ "input": "Hit Tong", "kind": "bool", "value": 1 }]
+  },
+  "actions": {
+    "fidget": [{ "input": "Hit Oor", "kind": "bool", "value": 1 }],
+    "click": [{ "input": "Hit Tong", "kind": "bool", "value": 1 }],
+    "happy": [{ "input": "Hit Staart", "kind": "bool", "value": 1 }],
+    "doesNotExist": [{ "input": "No Such Input", "kind": "trigger" }]
+  }
+}

@@ -106,7 +106,8 @@ final class PetActivity {
     /// One timer for when the threshold would pass, given the idle time so far.
     private func rearm(justActive: Bool = false) {
         cancel()
-        guard tracking, isAwake, !isUserInactive else { return }
+        guard tracking, isAwake else { return }
+        guard !isUserInactive else { return probeForReturn() }
         let remaining = Self.seconds(inactivityThreshold) - (justActive ? 0 : idleSeconds())
         guard remaining > 0 else { return becomeInactive() }
         let current = generation
@@ -124,6 +125,30 @@ final class PetActivity {
     private func becomeInactive() {
         isUserInactive = true
         onChange?()
+        probeForReturn()
+    }
+
+    /// How often a sleeping pet checks whether you're back (Milestone 10.1).
+    static let returnProbe = Duration.seconds(3)
+
+    /// While inactive: one idle-time read every `returnProbe` (the same public
+    /// call as above; no permission, no event monitoring). Any keyboard,
+    /// pointer or trackpad input since the last look wakes the pet. Before
+    /// this, only a click or drag on the pet (or a Space change, display wake
+    /// or unlock) could, so a pet that fell asleep while you were away stayed
+    /// asleep in place while you worked.
+    private func probeForReturn() {
+        guard tracking, isAwake, isUserInactive else { return }
+        let current = generation
+        timer = scheduler.after(Self.returnProbe) { [weak self] in
+            guard let self, current == self.generation else { return }
+            self.timer = nil
+            if self.idleSeconds() < Self.seconds(Self.returnProbe) + 0.5 {
+                self.markActive()
+            } else {
+                self.probeForReturn()
+            }
+        }
     }
 
     private func cancel() {
