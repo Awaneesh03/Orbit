@@ -4,3 +4,6 @@
 xcuserdata/
 .DS_Store
 .claude/
+
+# A second clone of this repository inside the project folder (kept locally, never committed).
+/Orbit/

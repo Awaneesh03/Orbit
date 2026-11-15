@@ -45,6 +45,20 @@ echo "==> Assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$EXE" "$APP_EXE"
+# The AI Hub's hook helper travels inside the app; Settings › AI Hub copies it
+# out for an agent only when the user approves installing that agent's hooks.
+cp "$BIN_DIR/OrbitAgentHook" "$APP/Contents/MacOS/OrbitAgentHook"
+codesign --force --sign - --timestamp=none "$APP/Contents/MacOS/OrbitAgentHook"
+# Orbit Pet's Rive runtime (dynamic framework; SwiftPM doesn't embed it). Signed before the app.
+if [[ -d "$BIN_DIR/RiveRuntime.framework" ]]; then
+    mkdir -p "$APP/Contents/Frameworks"
+    ditto "$BIN_DIR/RiveRuntime.framework" "$APP/Contents/Frameworks/RiveRuntime.framework"
+    codesign --force --sign - --timestamp=none "$APP/Contents/Frameworks/RiveRuntime.framework"
+fi
+# Bundled pet characters (Resources/Pets: manifests, .riv files, licences).
+if [[ -d "$ROOT/Resources/Pets" ]]; then
+    ditto "$ROOT/Resources/Pets" "$APP/Contents/Resources/Pets"
+fi
 cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 plutil -lint -s "$APP/Contents/Info.plist"
 

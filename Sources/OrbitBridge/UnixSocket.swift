@@ -17,8 +17,9 @@ package enum UnixSocket {
 
     /// Listens at `path`. The folder is created (or tightened) to 0700 and the
     /// socket to 0600. A stale socket is replaced; a live one (another Orbit)
-    /// or anything that isn't a socket is left alone.
-    package static func listen(at path: String) throws(Failure) -> Int32 {
+    /// or anything that isn't a socket is left alone. `backlog`: connections
+    /// the kernel queues before they're accepted (more are refused).
+    package static func listen(at path: String, backlog: Int32 = 4) throws(Failure) -> Int32 {
         let folder = (path as NSString).deletingLastPathComponent
         var info = stat()
         if lstat(folder, &info) == 0 {
@@ -46,7 +47,7 @@ package enum UnixSocket {
         let bound = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
-        guard bound == 0, chmod(path, 0o600) == 0, Darwin.listen(fd, 4) == 0 else {
+        guard bound == 0, chmod(path, 0o600) == 0, Darwin.listen(fd, backlog) == 0 else {
             let failure = Failure("bind")
             close(fd)
             throw failure
