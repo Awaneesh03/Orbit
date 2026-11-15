@@ -149,7 +149,15 @@ final class NetworkWidget: DashboardWidget {
         symbol: "network", category: .system, availability: .live,
         presentations: [.compact, .expanded], sectionPresentation: .expanded, isEnabledByDefault: false)
     private(set) var summary: NetworkSummary?
+    /// The Wi-Fi link, read on each path change (no polling). Its name is nil
+    /// without Location access; the card then says "Wi-Fi" as before.
+    private(set) var wifi: WiFiStatus?
     @ObservationIgnored private var monitor: NWPathMonitor?
+    private let readWiFi: () -> WiFiStatus?
+
+    init(readWiFi: @escaping () -> WiFiStatus? = NetworkInspector.wifiStatus) {
+        self.readWiFi = readWiFi
+    }
 
     var state: WidgetState { summary == nil ? .loading : .ready }
     var isMonitoring: Bool { monitor != nil }
@@ -159,7 +167,10 @@ final class NetworkWidget: DashboardWidget {
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
             let summary = NetworkSummary(path: path)
-            MainActor.assumeIsolated { self?.summary = summary }  // delivered on the main queue
+            MainActor.assumeIsolated {  // delivered on the main queue
+                self?.summary = summary
+                self?.wifi = summary.link == .wifi ? self?.readWiFi() : nil
+            }
         }
         monitor.start(queue: .main)
         self.monitor = monitor
@@ -177,10 +188,16 @@ final class NetworkWidget: DashboardWidget {
                 .font(.system(size: 24))
                 .foregroundStyle(summary.isOnline ? Theme.accent : .red)
             VStack(alignment: .leading, spacing: 2) {
-                Text(summary.title).font(.system(size: 18, weight: .semibold, design: .rounded))
-                Text(summary.detail).foregroundStyle(Theme.secondary)
+                Text(wifi?.ssid ?? summary.title).font(.system(size: 18, weight: .semibold, design: .rounded)).lineLimit(1)
+                Text(Self.detail(summary, wifi: wifi)).foregroundStyle(Theme.secondary).lineLimit(1)
             }
         })
+    }
+
+    /// "Wi-Fi · Excellent · 5 GHz" while on Wi-Fi with a reading; otherwise the summary's detail.
+    static func detail(_ summary: NetworkSummary, wifi: WiFiStatus?) -> String {
+        guard let wifi, wifi.isAssociated, summary.isOnline else { return summary.detail }
+        return ([summary.detail, WiFiSignal.quality(rssi: wifi.rssi), wifi.band].compactMap { $0 }).joined(separator: " · ")
     }
 }
 
@@ -199,5 +216,21 @@ struct Meter: View {
             }
             MeterBar(fraction: fraction ?? 0)
         }
+    }
+}
+
+/// Keep Awake on the Overview: the same assertion as System › Power.
+@MainActor
+final class KeepAwakeWidget: DashboardWidget {
+    let metadata = WidgetMetadata(
+        id: "keepAwake", title: "Keep Awake", description: "Stop your Mac sleeping for a while",
+        symbol: "cup.and.saucer", category: .system, availability: .live, isEnabledByDefault: false)
+    let model: KeepAwakeModel
+    var state: WidgetState { .ready }
+
+    init(model: KeepAwakeModel = .shared) { self.model = model }
+
+    func content(_ presentation: WidgetPresentation) -> AnyView {
+        AnyView(KeepAwakeControls(model: model))
     }
 }

@@ -378,10 +378,14 @@ final class CoreLocationProvider: NSObject, LocationProvider, CLLocationManagerD
         }
     }
 
+    /// Shows the system prompt if never asked; returns once the user decides.
+    func requestAccess() async {
+        guard access() == .notDetermined else { return }
+        await withCheckedContinuation { authorization = $0; manager.requestWhenInUseAuthorization() }
+    }
+
     func currentCoordinate() async throws -> (latitude: Double, longitude: Double) {
-        if access() == .notDetermined {
-            await withCheckedContinuation { authorization = $0; manager.requestWhenInUseAuthorization() }
-        }
+        await requestAccess()
         guard access() == .authorized else { throw DataSourceError.needsAccess("Location access isn't allowed.") }
         let location = try await withCheckedThrowingContinuation { fix = $0; manager.requestLocation() }
         return (location.coordinate.latitude, location.coordinate.longitude)

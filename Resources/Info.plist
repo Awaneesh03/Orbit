@@ -28,10 +28,12 @@
 	<string>Orbit shows today's agenda from your calendars. Events are read on this Mac only, never changed, saved or sent anywhere.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Only if you click Show Devices: Orbit lists your paired Bluetooth devices and lets you connect or disconnect them. Nothing is sent anywhere.</string>
 	<key>NSLocationUsageDescription</key>
-	<string>Only if you click Use My Location: Orbit uses your approximate location to show local weather. Rounded coordinates are sent to Open-Meteo; nothing else.</string>
+	<string>Only when you ask: for local weather (rounded coordinates go to Open-Meteo, nothing else) and because macOS requires it to show Wi-Fi network names. Wi-Fi names never leave this Mac.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Only if you click Use My Location: Orbit uses your approximate location to show local weather. Rounded coordinates are sent to Open-Meteo; nothing else.</string>
+	<string>Only when you ask: for local weather (rounded coordinates go to Open-Meteo, nothing else) and because macOS requires it to show Wi-Fi network names. Wi-Fi names never leave this Mac.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 </dict>
