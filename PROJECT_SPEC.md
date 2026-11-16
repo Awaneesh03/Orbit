@@ -1592,7 +1592,7 @@ its own widgets and sizes and never changes the Overview.
 No defects found; no code changes. Verified 4 Nov 2026 in the real app (the
 user's briefing.json: enabled, defaults), Mac idle, data read-only: the
 two-row layout at 740 × 420 with consistent Orbit Glass cards (Weather
-23° Gorakhpur; Calendar's real "Connect Calendar" state; Clock; Goals and
+live reading for the user's chosen city; Calendar's real "Connect Calendar" state; Clock; Goals and
 Tasks with completed items); Settings › Widgets › Daily Briefing (toggle,
 five rows, one-size pickers disabled, Reset, footer); the Overview unchanged
 after switching back; the Music Island's state unchanged throughout. Empty and
