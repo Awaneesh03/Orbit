@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbit: a native macOS control center in the notch</title>
+<meta name="description" content="Orbit is a native macOS control center in the notch: AI agent monitoring, meetings, battery and displays, a universal launcher and workspaces. Local-first, built with Swift 6.">
+<style>
+  :root { --bg:#0b0c11; --panel:#14161f; --line:#262a38; --text:#eceef4; --muted:#9aa1b4; --dim:#6c7286; --accent:#8f9dff; --accent2:#5ed98f; --radius:16px; }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior:auto; } }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+  a { color:var(--accent); }
+  a:focus-visible, button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:6px; }
+  .skip { position:absolute; left:-999px; top:8px; background:var(--accent); color:#000; padding:8px 12px; border-radius:8px; }
+  .skip:focus { left:16px; }
+  header.top { position:sticky; top:0; z-index:5; background:rgba(11,12,17,.86); backdrop-filter:saturate(1.4) blur(14px); border-bottom:1px solid var(--line); }
+  .bar { max-width:1080px; margin:0 auto; padding:12px 20px; display:flex; gap:20px; align-items:center; flex-wrap:wrap; }
+  .brand { font-weight:700; font-size:18px; color:var(--text); text-decoration:none; letter-spacing:-.01em; }
+  nav ul { list-style:none; display:flex; flex-wrap:wrap; gap:4px 14px; margin:0; padding:0; }
+  nav a { color:var(--muted); text-decoration:none; font-size:14px; }
+  nav a:hover { color:var(--text); }
+  main { max-width:1080px; margin:0 auto; padding:0 20px 80px; }
+  .hero { padding:64px 0 24px; }
+  .hero h1 { font-size:clamp(44px, 8vw, 84px); line-height:1; margin:0 0 18px; letter-spacing:-.03em; }
+  .hero .tag { font-size:clamp(20px, 3vw, 28px); font-weight:600; margin:0 0 14px; }
+  .hero p.lead { color:var(--muted); max-width:640px; font-size:18px; margin:0 0 22px; }
+  .meta { color:var(--dim); font:13px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+  .button { display:inline-block; padding:10px 18px; border-radius:999px; background:var(--accent); color:#0b0c11; font-weight:600; text-decoration:none; margin-right:10px; }
+  .button.ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
+  figure { margin:28px 0; }
+  figure img { width:100%; height:auto; border-radius:var(--radius); border:1px solid var(--line); display:block; }
+  figcaption { color:var(--dim); font-size:13px; margin-top:8px; }
+  section { padding:56px 0 8px; border-top:1px solid var(--line); margin-top:48px; }
+  section h2 { font-size:30px; letter-spacing:-.02em; margin:0 0 8px; }
+  section > p.sub { color:var(--muted); margin:0 0 24px; max-width:720px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:14px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:18px; }
+  .card h3 { margin:0 0 6px; font-size:16px; }
+  .card p { margin:0; color:var(--muted); font-size:14px; }
+  .shots { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:16px; align-items:start; }
+  .shots img { width:100%; height:auto; border-radius:12px; border:1px solid var(--line); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; overflow-x:auto; font:14px/1.6 ui-monospace, "SF Mono", Menlo, monospace; }
+  code { font-family:ui-monospace, "SF Mono", Menlo, monospace; font-size:.92em; }
+  .pill { display:inline-block; font-size:12px; padding:2px 9px; border-radius:999px; border:1px solid var(--line); color:var(--muted); }
+  .pill.ok { color:var(--accent2); border-color:rgba(94,217,143,.4); }
+  .pill.no { color:#ffb86b; border-color:rgba(255,184,107,.4); }
+  ul.plain { padding-left:20px; color:var(--muted); }
+  ul.plain li { margin:6px 0; }
+  footer { max-width:1080px; margin:0 auto; padding:24px 20px 48px; color:var(--dim); font-size:13px; border-top:1px solid var(--line); }
+  @media (max-width:640px) { .hero { padding-top:40px; } nav ul { gap:4px 10px; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="bar">
+    <a class="brand" href="#main">Orbit</a>
+    <nav aria-label="Sections">
+      <ul>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#architecture">Architecture</a></li>
+        <li><a href="#installation">Installation</a></li>
+        <li><a href="#configuration">Configuration</a></li>
+        <li><a href="#ai-hub">AI Hub</a></li>
+        <li><a href="#privacy">Privacy</a></li>
+        <li><a href="#troubleshooting">Troubleshooting</a></li>
+        <li><a href="#roadmap">Roadmap</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="hero" id="overview">
+    <h1>Orbit</h1>
+    <p class="tag">Your Mac. Your workspace. One intelligent control center.</p>
+    <p class="lead">A native macOS control center that lives in the notch: AI coding agents, meetings, battery and displays, a launcher and your workspaces, in one place, on your Mac. Built with public macOS APIs and Command Line Tools only; your data stays on your Mac.</p>
+    <a class="button" href="https://github.com/Awaneesh03/Orbit">View on GitHub</a>
+    <a class="button ghost" href="#installation">Build it</a>
+    <p class="meta" style="margin-top:22px">Swift 6 · SwiftUI · AppKit · Core Animation · SwiftPM · macOS 26+ · Apple Silicon · in active development, no release yet</p>
+    <figure>
+      <img src="assets/orbit-showcase.png" alt="Orbit: the Universal Launcher, the notch companion showing an agent's diff, the charging battery, a meeting reminder and the desktop pet" width="1600" height="900">
+      <figcaption>Composed from real Orbit renders made with test data.</figcaption>
+    </figure>
+  </div>
+
+  <section id="features" aria-labelledby="features-h">
+    <h2 id="features-h">Features</h2>
+    <p class="sub">What Orbit does today. Hover the notch (or press ⌃⌥⌘O) for the dashboard; press ⌃⌥Space for the launcher. <a href="https://github.com/Awaneesh03/Orbit/blob/main/docs/FEATURES.md">Full feature list with status</a>.</p>
+    <div class="grid">
+      <div class="card"><h3>Universal Launcher</h3><p>Apps, files, projects, agent sessions, tasks, events, Settings and Orbit actions, keyboard first.</p></div>
+      <div class="card"><h3>Workspace Profiles</h3><p>Projects, apps, layouts and focus choices per context. Never opens or closes anything by itself.</p></div>
+      <div class="card"><h3>Context Engine</h3><p>Ranked suggestions with the reason each appeared; learns locally from your clicks only.</p></div>
+      <div class="card"><h3>AI Hub</h3><p>Observe-only monitoring of coding agents: sessions, diffs, insights, alerts.</p></div>
+      <div class="card"><h3>Meetings</h3><p>Reminders in the notch or a floating pill, with Join for Meet, Zoom and Teams links.</p></div>
+      <div class="card"><h3>Battery and energy</h3><p>Charge states, per-app energy estimates and a charging animation that runs only while charging.</p></div>
+      <div class="card"><h3>System</h3><p>Wi-Fi, Bluetooth, sound, power, Keep Awake, and the built-in display's brightness.</p></div>
+      <div class="card"><h3>Productivity</h3><p>Tasks, goals, focus timer, clipboard, quick note, File Shelf, Screenshot Vault, Daily Digest.</p></div>
+      <div class="card"><h3>Desktop pet</h3><p>A cat or a dog from free CC0 artwork, and a companion in the notch.</p></div>
+    </div>
+    <div class="shots" style="margin-top:24px">
+      <img src="screenshots/m16/launcher.png" alt="The Universal Launcher" loading="lazy">
+      <img src="screenshots/m17/suggested-for-you.png" alt="Suggested for You with an agent that needs you and a meeting in 4 minutes" loading="lazy">
+      <img src="screenshots/m16/battery-expanded.png" alt="Apps Using Significant Energy with estimated watts" loading="lazy">
+      <img src="screenshots/m18/charging.gif" alt="The charging animation" loading="lazy">
+    </div>
+    <h3 style="margin-top:32px">What Orbit can't do</h3>
+    <ul class="plain">
+      <li>Set brightness, or read an external monitor's brightness: both need private interfaces.</li>
+      <li>Tell which website uses energy: browsers don't expose it, so a browser is shown as a whole.</li>
+      <li>Answer Claude Code's prompts: the integration is observe-only by design.</li>
+      <li>The GitHub and AI Hub chat widgets show sample data and are labelled so.</li>
+    </ul>
+  </section>
+
+  <section id="architecture" aria-labelledby="architecture-h">
+    <h2 id="architecture-h">Architecture</h2>
+    <p class="sub">An accessory app (no Dock icon). AppKit owns the windows, SwiftUI draws their content, Core Animation runs continuous effects outside Orbit's process. <a href="https://github.com/Awaneesh03/Orbit/blob/main/docs/ARCHITECTURE.md">Architecture guide</a>.</p>
+    <div class="grid">
+      <div class="card"><h3>One notch slot</h3><p>The music island, HUDs, alerts, reminders and companion share one place with one priority order.</p></div>
+      <div class="card"><h3>Widgets</h3><p>Every card is a <code>DashboardWidget</code> that does no work while hidden.</p></div>
+      <div class="card"><h3>Agent bridge</h3><p>Agent hooks send events over a local Unix socket; they're validated, redacted and stored in SQLite.</p></div>
+      <div class="card"><h3>Context Engine</h3><p>Reads existing models through Observation; refreshes on change, never polls.</p></div>
+    </div>
+  </section>
+
+  <section id="installation" aria-labelledby="installation-h">
+    <h2 id="installation-h">Installation</h2>
+    <p class="sub">macOS 26 or later, Apple Silicon, Xcode Command Line Tools with Swift 6.2+. Full Xcode isn't needed.</p>
+<pre><code>git clone https://github.com/Awaneesh03/Orbit.git
+cd Orbit
+scripts/run.sh            # build, assemble Orbit.app, sign it ad hoc, launch
+scripts/run.sh release    # optimised build
+scripts/test.sh           # run the test suite</code></pre>
+    <p class="sub">Always launch with <code>scripts/run.sh</code>. <a href="https://github.com/Awaneesh03/Orbit/blob/main/docs/INSTALLATION.md">Installation guide</a>, including the optional Brave helper.</p>
+  </section>
+
+  <section id="configuration" aria-labelledby="configuration-h">
+    <h2 id="configuration-h">Configuration</h2>
+    <p class="sub">Right-click the notch for Settings, or search for a setting in the launcher. The sidebar is searchable.</p>
+    <table>
+      <thead><tr><th scope="col">Settings section</th><th scope="col">What it covers</th></tr></thead>
+      <tbody>
+        <tr><td>Get Started</td><td>Ways in, shortcuts, and every permission with when it's asked</td></tr>
+        <tr><td>General</td><td>Notch behaviour, music island, HUDs, compact style, meeting reminders, battery and brightness, automations</td></tr>
+        <tr><td>Launcher · Workspaces</td><td>Shortcut, file search, history · profiles and their schedules</td></tr>
+        <tr><td>Suggestions · Context Inspector</td><td>Categories, frequency, snooze, learning reset · what the engine sees and why</td></tr>
+        <tr><td>Appearance · Pet · Widgets</td><td>Opacity, spacing, motion · character and behaviour · Overview and Briefing layout</td></tr>
+        <tr><td>AI Hub · Calendar · Weather</td><td>Agents, alerts, hooks · calendars · city and units</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="ai-hub" aria-labelledby="ai-hub-h">
+    <h2 id="ai-hub-h">AI Hub</h2>
+    <p class="sub">Off by default. Monitors Claude Code, OpenAI Codex, GitHub Copilot CLI, Gemini CLI, OpenCode and others through local hooks or adapters. <a href="https://github.com/Awaneesh03/Orbit/blob/main/docs/AI_HUB_SPEC.md">AI Hub specification</a>.</p>
+    <ul class="plain">
+      <li><span class="pill ok">D1</span> Claude Code is observe-only: Orbit never answers its prompts, and its hooks are written only after you approve.</li>
+      <li><span class="pill ok">D2</span> No network listener or remote control: events arrive over a local Unix socket.</li>
+      <li><span class="pill ok">D3</span> No stored credentials; local chat talks only to Ollama or LM Studio on localhost.</li>
+    </ul>
+    <div class="shots">
+      <img src="screenshots/notch-companion/5-expanded-diff.png" alt="The notch companion showing an agent's diff" loading="lazy">
+      <img src="screenshots/ai-hub-2/4-approvals.png" alt="The AI Hub's approvals view with a simulated question" loading="lazy">
+    </div>
+  </section>
+
+  <section id="privacy" aria-labelledby="privacy-h">
+    <h2 id="privacy-h">Privacy</h2>
+    <p class="sub">Data stays in <code>~/Library/Application Support/Orbit/</code>. No analytics, accounts or screen recording. <a href="https://github.com/Awaneesh03/Orbit/blob/main/docs/PRIVACY.md">Privacy details</a>.</p>
+    <table>
+      <thead><tr><th scope="col">Network use</th><th scope="col">When</th></tr></thead>
+      <tbody>
+        <tr><td>Open-Meteo</td><td>Weather, while the widget shows</td></tr>
+        <tr><td>Public news feeds</td><td>Tech News, while the widget shows</td></tr>
+        <tr><td>LinkedIn API</td><td>Only with your own developer token</td></tr>
+        <tr><td>localhost</td><td>Local models, only if you turn them on</td></tr>
+      </tbody>
+    </table>
+    <p class="sub" style="margin-top:16px">Permissions are asked only when you use the feature: Calendar, Location (Wi-Fi names, local weather), Bluetooth. Never Accessibility, Input Monitoring or Screen Recording.</p>
+  </section>
+
+  <section id="troubleshooting" aria-labelledby="troubleshooting-h">
+    <h2 id="troubleshooting-h">Troubleshooting</h2>
+    <ul class="plain">
+      <li><strong>TestingMacros plugin not found:</strong> run tests with <code>scripts/test.sh</code>.</li>
+      <li><strong>A Dock icon, no permission prompts:</strong> Orbit was started with <code>swift run</code>; use <code>scripts/run.sh</code>.</li>
+      <li><strong>Permissions asked again after a rebuild:</strong> expected with ad-hoc signing.</li>
+      <li><strong>No wings:</strong> they need a notched main display and the <em>Beside the camera</em> style; otherwise the floating pill is used.</li>
+    </ul>
+    <p class="sub"><a href="https://github.com/Awaneesh03/Orbit/blob/main/docs/TROUBLESHOOTING.md">All troubleshooting notes</a>.</p>
+  </section>
+
+  <section id="roadmap" aria-labelledby="roadmap-h">
+    <h2 id="roadmap-h">Roadmap</h2>
+    <div class="grid">
+      <div class="card"><h3>In progress</h3><p>Live checks on more display setups; LinkedIn waits on API access.</p></div>
+      <div class="card"><h3>Planned</h3><p>Meeting reminders in the compact pill, dragging shelf files onto agents, more automation triggers.</p></div>
+      <div class="card"><h3>Exploring</h3><p>On-device Foundation Models for the Digest, optional notifications, Developer ID signing.</p></div>
+    </div>
+    <p class="sub" style="margin-top:16px"><a href="https://github.com/Awaneesh03/Orbit/blob/main/docs/ROADMAP.md">Roadmap</a> · <a href="https://github.com/Awaneesh03/Orbit/blob/main/docs/CONTRIBUTING.md">Contributing</a></p>
+  </section>
+</main>
+<footer>Orbit is a personal project in active development. The code doesn't have a license yet. Pet artwork: CC0. Rive runtime: MIT.</footer>
+</body>
+</html>

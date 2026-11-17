@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case welcome, general, launcher, workspaces, suggestions, contextInspector, appearance, pet, aiHub, widgets, calendar, weather, privacy, storage, about
+    case welcome, general, notch, launcher, workspaces, productivity, suggestions, contextInspector, appearance, pet, aiHub, widgets, calendar, weather, privacy, storage, about
     var id: Self { self }
 
     /// Words that find a section in the sidebar search and the launcher (Milestone 16).
@@ -10,8 +10,10 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .welcome: "get started onboarding introduction shortcuts permissions"
         case .suggestions: "suggestions proactive suggested for you snooze learning history focus briefing categories"
         case .contextInspector: "context inspector diagnostics debug events rules engine"
-        case .general: "notch hide delay music island volume brightness hud compact wings pill status meeting heads-up automations battery energy charging animation"
-        case .launcher: "launcher search shortcut spotlight files apps recent history keyboard"
+        case .general: "notch hide delay music island lyrics volume brightness hud compact wings pill status meeting heads-up automations battery energy charging animation bluetooth devices connected"
+        case .notch: "notch dashboard on off disable hover click open close delay live activities bluetooth devices connected charging battery power low power energy smooth animation"
+        case .launcher: "launcher search shortcut spotlight files apps recent history keyboard calculator apple shortcuts timer colour color picker"
+        case .productivity: "focus pomodoro timer break eye 20-20-20 clipboard history file shelf airdrop expiry"
         case .workspaces: "workspace profile development college fixkaru personal projects apps layout"
         case .appearance: "theme dark light opacity spacing reduce motion"
         case .pet: "cat dog companion desktop character coat"
@@ -30,8 +32,10 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .welcome: "Get Started"
         case .suggestions: "Suggestions"
         case .contextInspector: "Context Inspector"
+        case .notch: "Notch"
         case .launcher: "Launcher"
         case .workspaces: "Workspaces"
+        case .productivity: "Productivity"
         case .general: "General"
         case .appearance: "Appearance"
         case .pet: "Pet"
@@ -50,8 +54,10 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .welcome: "hand.wave"
         case .suggestions: "lightbulb"
         case .contextInspector: "stethoscope"
+        case .notch: "rectangle.topthird.inset.filled"
         case .launcher: "magnifyingglass"
         case .workspaces: "square.stack.3d.up"
+        case .productivity: "checklist"
         case .general: "gearshape"
         case .appearance: "paintbrush"
         case .pet: "pawprint"
@@ -218,8 +224,10 @@ private struct SettingsView: View {
                 case .welcome: WelcomeSettings(model: model)
                 case .suggestions: SuggestionSettings(model: model)
                 case .contextInspector: ContextInspectorSettings(model: model)
+                case .notch: NotchSettings(model: model)
                 case .launcher: LauncherSettings(model: model)
                 case .workspaces: WorkspaceSettings(model: model)
+                case .productivity: ProductivitySettings(model: model)
                 case .general: GeneralSettings(model: model)
                 case .appearance: AppearanceSettings(preferences: model.preferences)
                 case .pet: PetSettings(preferences: model.preferences)
@@ -260,16 +268,10 @@ private struct GeneralSettings: View {
                     Text(message).font(.callout).foregroundStyle(.secondary)
                 }
             }
-            Section("Dashboard") {
-                LabeledContent("Opens", value: "When the pointer enters the notch")
-                Slider(value: Binding(get: { preferences.value.hideDelay },
-                                      set: { value in preferences.update { $0.hideDelay = value } }),
-                       in: OrbitPreferences.hideDelayRange, step: 0.1) {
-                    Text("Close delay")
+            Section("Notch") {
+                LabeledContent("Notch") {
+                    Button(preferences.value.notchEnabled ? "On · Notch Settings…" : "Off · Notch Settings…") { model.section = .notch }
                 }
-                Text(String(format: "Closes %.1f s after the pointer leaves. Escape, a click outside or a Space change close it at once.",
-                            preferences.value.hideDelay))
-                    .font(.callout).foregroundStyle(.secondary)
             }
             Section("Music Island") {
                 Toggle("Announce new tracks below the notch", isOn: Binding(
@@ -283,6 +285,10 @@ private struct GeneralSettings: View {
                 Text(String(format: "When a track or video starts, a small player appears for %.0f s; click it for the full player. Playback, the Now Playing widget and the dashboard aren't affected.",
                             preferences.value.musicIslandSeconds))
                     .font(.callout).foregroundStyle(.secondary)
+                Toggle(isOn: Binding(get: { preferences.value.lyrics }, set: { value in preferences.update { $0.lyrics = value } })) {
+                    Text("Lyrics")
+                    Text("In the expanded Now Playing widget. The track's title and artist are sent to LRCLIB (lrclib.net, a free, open lyrics database; no account). Lyrics follow the song for YouTube in Brave; Apple Music doesn't report its position, so they show as text. Kept in memory only.")
+                }
             }
             Section("Compact Notch") {
                 Picker("Compact style", selection: Binding(get: { preferences.value.compactStyle },
@@ -540,7 +546,7 @@ private struct AIHubSettings: View {
             Section("General") {
                 Toggle(isOn: Binding(get: { value.aiHub }, set: { on in preferences.update { $0.aiHub = on } })) {
                     Text("Enable AI Hub")
-                    Text("Lets AI coding agents on this Mac report their activity to Orbit over a private local socket. No network, no accounts. Agents are connected in a later update.")
+                    Text("Lets AI coding agents on this Mac report their activity to Orbit over a private local socket. No network, no accounts. Connect Claude Code below (observe-only); other agents through their hooks or an adapter.")
                 }
             }
             if let hub, value.aiHub {
@@ -933,13 +939,15 @@ private struct AboutSettings: View {
             }
             Section {
                 LabeledContent("Version", value: "\(info["CFBundleShortVersionString"] as? String ?? "—") (\(info["CFBundleVersion"] as? String ?? "—"))")
-                LabeledContent("Requires", value: "macOS 26 or later, on a Mac with a notch")
+                LabeledContent("Requires", value: "macOS 26 or later; on a display without a notch, Orbit sits below the menu bar")
                 LabeledContent("This Mac", value: ProcessInfo.processInfo.operatingSystemVersionString)
                 LabeledContent("Data", value: ProjectsWidget.abbreviated(model.dataDirectory))
             }
             Section("Documentation") {
-                LabeledContent("Project specification", value: "PROJECT_SPEC.md in the Orbit source folder")
-                LabeledContent("User guide", value: "Coming later")
+                LabeledContent("Features", value: "docs/FEATURES.md in the Orbit source folder")
+                LabeledContent("Privacy", value: "docs/PRIVACY.md")
+                LabeledContent("Troubleshooting", value: "docs/TROUBLESHOOTING.md")
+                LabeledContent("Project specification", value: "PROJECT_SPEC.md")
             }
         }
     }
@@ -1196,6 +1204,137 @@ private struct AutomationsSection: View {
             Text("Automations")
         } footer: {
             Text("Orbit's own signals only, and a fixed list of things it can already do. Nothing runs commands or scripts, simulated agents never trigger anything, and each automation runs at most once a minute. Meeting automations use the Calendar widget's calendars, if Orbit already has access.")
+        }
+    }
+}
+
+/// Settings › Productivity (Milestone 20): the focus timer, eye breaks, clipboard history and the File Shelf in one place.
+/// Each control edits the same model its widget uses, so the widget and this pane always agree.
+private struct ProductivitySettings: View {
+    let model: SettingsModel
+
+    var body: some View {
+        let registry = model.dashboard.registry
+        let preferences = model.preferences
+        Form {
+            if let pomodoro = registry.widget("pomodoro") as? PomodoroWidget {
+                let timer = pomodoro.timer
+                let focus = Int(timer.focusLength / 60), rest = Int(timer.breakLength / 60)
+                Section {
+                    Picker("Focus", selection: Binding(get: { focus }, set: { pomodoro.setLengths(focusMinutes: $0, breakMinutes: rest) })) {
+                        ForEach(Set(PomodoroWidget.focusChoices + [focus]).sorted(), id: \.self) { Text("\($0) min").tag($0) }
+                    }
+                    Picker("Break", selection: Binding(get: { rest }, set: { pomodoro.setLengths(focusMinutes: focus, breakMinutes: $0) })) {
+                        ForEach(Set(PomodoroWidget.breakChoices + [rest]).sorted(), id: \.self) { Text("\($0) min").tag($0) }
+                    }
+                    LabeledContent("Sessions completed", value: "\(timer.completedSessions)")
+                } header: {
+                    Text("Focus Timer")
+                } footer: {
+                    Text("A run already in progress keeps its own end. Smart Focus suggestions can still start a 25 or 50 minute run.")
+                }
+            }
+            if let eyeBreak = (registry.widget("eyeBreak") as? EyeBreakWidget)?.model {
+                let s = eyeBreak.settings
+                Section {
+                    Toggle("Remind me to rest my eyes", isOn: Binding(get: { s.isOn }, set: { on in eyeBreak.update { $0.isOn = on } }))
+                    Stepper(value: Binding(get: { s.workMinutes }, set: { value in eyeBreak.update { $0.workMinutes = value } }),
+                            in: EyeBreakSettings.workRange, step: 5) { Text("Every \(s.workMinutes) min") }
+                    Stepper(value: Binding(get: { s.breakSeconds }, set: { value in eyeBreak.update { $0.breakSeconds = value } }),
+                            in: EyeBreakSettings.breakRange, step: 10) { Text("Look away for \(s.breakSeconds) s") }
+                    Toggle("Quiet reminder (no motion, shorter text)", isOn: Binding(get: { s.quiet }, set: { on in eyeBreak.update { $0.quiet = on } }))
+                } header: {
+                    Text("Eye Break")
+                } footer: {
+                    Text("The 20-20-20 rule: every 20 minutes, look about 6 m (20 ft) away for 20 seconds. The reminder waits while the dashboard or full player is open; sleep and a locked screen count as a break.")
+                }
+            }
+            Section {
+                Toggle("Clipboard history", isOn: Binding(get: { preferences.value.clipboardHistory },
+                                                          set: { on in preferences.update { $0.clipboardHistory = on } }))
+                Picker("Keep the last", selection: Binding(get: { preferences.value.clipboardLimit },
+                                                           set: { value in preferences.update { $0.clipboardLimit = value } })) {
+                    ForEach(ClipboardHistory.limitChoices, id: \.self) { Text("\($0) items").tag($0) }
+                }
+                .disabled(!preferences.value.clipboardHistory)
+                Button("Clear Clipboard History") { ClipboardHistory.shared.clear() }
+                    .disabled(ClipboardHistory.shared.items.isEmpty)
+            } header: {
+                Text("Clipboard")
+            } footer: {
+                Text("Copied text and links, in memory only: never written to disk, and forgotten when Orbit quits. Items password managers mark as private are skipped.")
+            }
+            if let shelf = (registry.widget("fileShelf") as? FileShelfWidget)?.shelf {
+                Section {
+                    Picker("Keep items for", selection: Binding(get: { shelf.expiryDays }, set: { shelf.setExpiry($0) })) {
+                        ForEach(FileShelf.expiryChoices, id: \.self) { Text("\($0) day\($0 == 1 ? "" : "s")").tag($0) }
+                    }
+                    LabeledContent("On the shelf", value: "\(shelf.items.count) of \(FileShelf.maxItems)")
+                    Button("Clear the Shelf", role: .destructive) { shelf.clear() }
+                        .disabled(shelf.items.isEmpty)
+                } header: {
+                    Text("File Shelf")
+                } footer: {
+                    Text("Dropped files are kept as links; originals are never moved. Right-click an item for AirDrop, or use AirDrop All in the expanded shelf: macOS asks who to send to. Clearing removes Orbit's own copies too.")
+                }
+            }
+        }
+    }
+}
+
+/// Settings › Notch (Milestone 21): the master switch, how it opens, live activities and energy.
+private struct NotchSettings: View {
+    let model: SettingsModel
+
+    var body: some View {
+        let preferences = model.preferences
+        let value = preferences.value
+        Form {
+            Section {
+                Toggle(isOn: Binding(get: { value.notchEnabled }, set: { on in preferences.update { $0.notchEnabled = on } })) {
+                    Text("Use the notch")
+                    Text("Off: Orbit leaves the notch alone: no dashboard on hover, no music island, volume or brightness HUDs, alerts or notes below it. Everything else keeps working, and the dashboard still opens with \(DashboardHotKey.label) or from the launcher.")
+                }
+            }
+            Section("Dashboard") {
+                Picker("Opens when you", selection: Binding(get: { value.notchOpen }, set: { choice in preferences.update { $0.notchOpen = choice } })) {
+                    ForEach(NotchOpening.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.radioGroup)
+                .disabled(!value.notchEnabled)
+                Slider(value: Binding(get: { value.hideDelay }, set: { delay in preferences.update { $0.hideDelay = delay } }),
+                       in: OrbitPreferences.hideDelayRange, step: 0.1) {
+                    Text("Close delay")
+                }
+                Text(String(format: "It grows out of the notch and closes %.1f s after the pointer leaves. Escape, a click outside or a Space change close it at once. The time, battery and any running timer sit beside the camera; the section icons are on the right.", value.hideDelay))
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle(isOn: Binding(get: { value.powerNotices }, set: { on in preferences.update { $0.powerNotices = on } })) {
+                    Text("Charging and battery")
+                    Text("When the charger is connected or removed, when it's fully charged, and at 20 % and 10 %.")
+                }
+                Toggle(isOn: Binding(get: { value.deviceNotices }, set: { on in preferences.update { $0.deviceNotices = on } })) {
+                    Text("Bluetooth devices")
+                    Text("When headphones, a keyboard or another paired device connects or disconnects, with its battery when it reports one. Needs Bluetooth access (granted from System › Bluetooth in the dashboard): \(BluetoothModel.currentAccess() == .allowed ? "allowed" : "not granted yet").")
+                }
+                LabeledContent("Also shown there", value: "A finished timer (type “timer 10m” in the launcher) and a picked colour")
+            } header: {
+                Text("Live Activities")
+            } footer: {
+                Text("A short note below the notch for 3 seconds, only when nothing more important is there. Each is event-driven: nothing polls in the background.")
+            }
+            Section {
+                Toggle(isOn: Binding(get: { value.lowPowerFollows }, set: { on in preferences.update { $0.lowPowerFollows = on } })) {
+                    Text("Save energy in Low Power Mode")
+                    Text("While macOS Low Power Mode is on, the notch opens with a simple fade and decorative motion (the charging animation, the music equalizer, the pet) stops.")
+                }
+                LabeledContent("Low Power Mode", value: ProcessInfo.processInfo.isLowPowerModeEnabled ? "On" : "Off")
+            } header: {
+                Text("Energy")
+            } footer: {
+                Text("The notch draws nothing while closed. Its open and close animations run in the window server for under half a second; widgets work only while they're on screen.")
+            }
         }
     }
 }

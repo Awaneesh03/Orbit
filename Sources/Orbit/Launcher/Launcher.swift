@@ -15,6 +15,8 @@ import UniformTypeIdentifiers
 struct LauncherItem: Identifiable, Equatable, Codable, Sendable {
     enum Kind: String, Codable, CaseIterable, Sendable {
         case app, file, folder, project, agent, shelf, task, goal, event, setting, orbit, workspace
+        /// Milestone 20: a sum typed into the search, and Apple Shortcuts.
+        case calculation, shortcut
 
         var label: String {
             switch self {
@@ -30,6 +32,8 @@ struct LauncherItem: Identifiable, Equatable, Codable, Sendable {
             case .setting: "Setting"
             case .orbit: "Orbit"
             case .workspace: "Workspace"
+            case .calculation: "Calculator"
+            case .shortcut: "Shortcut"
             }
         }
 
@@ -47,16 +51,19 @@ struct LauncherItem: Identifiable, Equatable, Codable, Sendable {
             case .setting: "gearshape"
             case .orbit: "circle.hexagongrid"
             case .workspace: "square.stack.3d.up"
+            case .calculation: "equal.circle"
+            case .shortcut: "square.2.layers.3d"
             }
         }
 
         /// Ties break toward the kinds people open most.
         var weight: Int {
             switch self {
+            case .calculation: 100
             case .app: 40
             case .project, .workspace: 35
             case .agent, .event: 30
-            case .orbit, .setting: 25
+            case .orbit, .setting, .shortcut: 25
             case .task, .goal, .shelf: 20
             case .folder: 15
             case .file: 10
@@ -104,7 +111,7 @@ enum LauncherCategory: String, CaseIterable, Identifiable, Sendable {
         case .agents: kind == .agent
         case .tasks: kind == .task || kind == .goal
         case .calendar: kind == .event
-        case .orbit: kind == .orbit || kind == .setting || kind == .workspace
+        case .orbit: kind == .orbit || kind == .setting || kind == .workspace || kind == .shortcut
         }
     }
 }
@@ -263,19 +270,24 @@ final class LauncherModel {
     /// Paths the active workspace prefers (ranked higher).
     @ObservationIgnored var boosted: @MainActor () -> Set<String> = { [] }
     @ObservationIgnored var searchesFiles = true
+    /// Settings › Launcher: Apple Shortcuts in the results (Milestone 20).
+    @ObservationIgnored var searchesShortcuts = true
     @ObservationIgnored private let files: (any FileSearching)?
     @ObservationIgnored private var apps: [LauncherItem] = []
     @ObservationIgnored private var appsScannedAt: Date?
+    @ObservationIgnored private var shortcuts: [LauncherItem] = []
     @ObservationIgnored private var fileResults: [LauncherItem] = []
     @ObservationIgnored private var fileDebounce: Task<Void, Never>?
     @ObservationIgnored private let now: () -> Date
     /// Time to rank the last query (performance audit).
     private(set) var lastSearchDuration: Duration = .zero
 
-    init(file: JSONFile<LauncherMemory>?, files: (any FileSearching)? = SpotlightSearch(), apps: [LauncherItem]? = nil, now: @escaping () -> Date = { .now }) {
+    init(file: JSONFile<LauncherMemory>?, files: (any FileSearching)? = SpotlightSearch(), apps: [LauncherItem]? = nil,
+         shortcuts: [String] = [], now: @escaping () -> Date = { .now }) {
         stored = file.map { Persisted($0, initial: LauncherMemory()) } ?? Persisted(memory: LauncherMemory())
         self.files = files
         self.now = now
+        self.shortcuts = shortcuts.map(Self.shortcutItem)
         if let apps {
             self.apps = apps
             appsScannedAt = .distantFuture
@@ -291,6 +303,10 @@ final class LauncherModel {
         Task {
             let scanned = await Task.detached(priority: .userInitiated) { AppCatalog.scan() }.value
             apps = scanned
+            search()
+            guard searchesShortcuts else { return }  // off: the names aren't even read
+            let names = await Task.detached(priority: .utility) { ShortcutsCatalog.list() }.value
+            shortcuts = names.map(Self.shortcutItem)
             search()
         }
         search()
@@ -314,12 +330,44 @@ final class LauncherModel {
             files?.cancel()
             results = memory.recentItems.filter { category.contains($0.kind) }
         } else {
-            results = Self.rank(query: trimmed, items: apps + sources() + fileResults, category: category,
-                                recent: Set(memory.recentItems.map(\.id)), boosted: boosted())
+            results = ranked(trimmed, files: fileResults)
             scheduleFileSearch(trimmed)
         }
         selection = min(selection, max(results.count - 1, 0))
         lastSearchDuration = start.duration(to: clock.now)
+    }
+
+    private var searchable: [LauncherItem] { apps + (searchesShortcuts ? shortcuts : []) + sources() }
+
+    /// Everything for a query: ranked items, then a sum and a timer on top when the query is one. One place,
+    /// for the first pass and when Spotlight answers.
+    private func ranked(_ text: String, files: [LauncherItem]) -> [LauncherItem] {
+        var items = Self.rank(query: text, items: searchable + files, category: category,
+                              recent: Set(memory.recentItems.map(\.id)), boosted: boosted())
+        if category == .all, let sum = Self.calculation(text) { items.insert(sum, at: 0) }
+        if category == .all || category == .orbit, let timer = Self.timer(text) { items.insert(timer, at: 0) }
+        return items
+    }
+
+    /// "= 42" for a query that's arithmetic; Return copies 42.
+    nonisolated static func calculation(_ query: String) -> LauncherItem? {
+        guard let value = Calculator.evaluate(query) else { return nil }
+        return LauncherItem(id: "calculation:" + query, kind: .calculation, title: "= " + Calculator.format(value),
+                            subtitle: query + " · Return copies the result", action: Calculator.plain(value))
+    }
+
+    /// "timer 10m tea" → Start a 10:00 timer (Milestone 21).
+    nonisolated static func timer(_ query: String) -> LauncherItem? {
+        guard let parsed = QuickTimer.parse(query) else { return nil }
+        let length = QuickTimer.format(parsed.seconds)
+        return LauncherItem(id: "orbit:timer", kind: .orbit, title: "Start a \(length) Timer" + (parsed.label.isEmpty ? "" : ": \(parsed.label)"),
+                            subtitle: "Shows in the dashboard header; a note below the notch when it's done",
+                            action: "timer|\(Int(parsed.seconds))|\(parsed.label)")
+    }
+
+    nonisolated static func shortcutItem(_ name: String) -> LauncherItem {
+        LauncherItem(id: "shortcut:" + name, kind: .shortcut, title: name,
+                     subtitle: "Apple Shortcut · Return runs it, ⌘Return opens it in Shortcuts", keywords: "shortcut automation", action: name)
     }
 
     nonisolated static func rank(query: String, items: [LauncherItem], category: LauncherCategory, recent: Set<String>, boosted: Set<String>,
@@ -346,8 +394,7 @@ final class LauncherModel {
                 guard let self, self.query.trimmingCharacters(in: .whitespaces) == text else { return }
                 self.isSearchingFiles = false
                 self.fileResults = found
-                self.results = Self.rank(query: text, items: self.apps + self.sources() + found, category: self.category,
-                                         recent: Set(self.memory.recentItems.map(\.id)), boosted: self.boosted())
+                self.results = self.ranked(text, files: found)
                 self.selection = min(self.selection, max(self.results.count - 1, 0))
             }
         }
@@ -367,6 +414,7 @@ final class LauncherModel {
 
     /// Remembers what was opened (and the query that found it).
     func remember(_ item: LauncherItem) {
+        guard item.kind != .calculation else { return }  // a sum isn't something to reopen
         let text = query.trimmingCharacters(in: .whitespaces)
         stored.update { memory in
             memory.recentItems.removeAll { $0.id == item.id }

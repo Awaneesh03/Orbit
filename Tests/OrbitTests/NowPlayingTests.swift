@@ -204,7 +204,7 @@ private func musicSource(feed: MockFeed, running: Bool = true, workspace: Notifi
     coordinator.register(musicSource(feed: feed, running: true))
     let widget = NowPlayingWidget(coordinator: coordinator)
     #expect(coordinator.isRunning && widget.state == .ready && coordinator.isWaiting)  // waiting, not empty
-    #expect(widget.metadata.isEnabledByDefault == false)  // the Overview isn't changed for existing users
+    #expect(widget.metadata.isEnabledByDefault)  // Milestone 21: on the default Overview; a saved layout keeps its own choice
     let waiting = try #require(render(WidgetHost(widget: widget, presentation: .compact), size: CGSize(width: 229, height: 160)))
     feed.send(playing)
     let compact = try #require(render(WidgetHost(widget: widget, presentation: .compact), size: CGSize(width: 229, height: 160)))

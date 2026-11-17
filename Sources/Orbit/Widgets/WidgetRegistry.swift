@@ -49,6 +49,7 @@ struct WidgetRegistry {
         let goals = GoalsWidget(file: file("goals.json"))
         let tasks = TasksWidget(file: file("tasks.json"), goals: goals)
         let pomodoro = PomodoroWidget(file: file("pomodoro.json"))
+        let events = EventsWidget(store: EventKitStore(), settings: CalendarSettingsModel(file: file(CalendarSettingsModel.fileName)))
         do {
             return try WidgetRegistry([
                 ClockWidget(),
@@ -67,7 +68,8 @@ struct WidgetRegistry {
                 EyeBreakWidget(model: EyeBreakModel(file: file("eyebreak.json"))),
                 FileShelfWidget(shelf: FileShelf(file: file("shelf.json"),
                                                  folder: dataDirectory.appending(path: "Shelf", directoryHint: .isDirectory))),
-                EventsWidget(store: EventKitStore(), settings: CalendarSettingsModel(file: file(CalendarSettingsModel.fileName))),
+                events,
+                MonthCalendarWidget(events: events),
                 NewsWidget(source: NewsFeedSource(sources: NewsSource.curated, http: URLSessionWeatherHTTP()),
                            cache: DataCache(file: file("news-cache.json"))),
                 LinkedInWidget(),

@@ -201,7 +201,7 @@ private func eventually(_ condition: () -> Bool) async -> Bool {
     interaction.close()
     island.refresh(item: item(.playing, "New", video: "new"), enabled: true, dashboardOpen: interaction.isOpen)
     #expect(!island.isVisible)  // nothing pops up afterwards
-    #expect(interaction.phase == .hidden && NotchGeometry.dashboardSize == CGSize(width: 740, height: 420))
+    #expect(interaction.phase == .hidden && NotchGeometry.dashboardSize == CGSize(width: 860, height: 480))
 }
 
 @MainActor @Test func spaceChangesAndQuittingLeaveNothingBehind() async {

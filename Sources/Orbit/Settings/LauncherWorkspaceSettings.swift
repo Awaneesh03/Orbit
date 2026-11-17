@@ -69,6 +69,11 @@ struct LauncherSettings: View {
                     Text("Search files and folders")
                     Text("Asks Spotlight's index for names in your home folder. Orbit doesn't open files to search them; scripts and apps you find are shown in Finder, never run.")
                 }
+                Toggle(isOn: Binding(get: { preferences.value.launcherShortcuts }, set: { value in preferences.update { $0.launcherShortcuts = value } })) {
+                    Text("Apple Shortcuts")
+                    Text("Your shortcuts by name, from macOS's own shortcuts tool. Return runs the one you chose; ⌘Return opens it in Shortcuts. Nothing runs by itself.")
+                }
+                LabeledContent("Calculator", value: "Type a sum (12*4+3, 2^10, (5+3)/2); Return copies the answer")
                 LabeledContent("Also searched", value: "Apps, projects, agent sessions, the File Shelf, tasks, goals, today's events, Settings, Orbit actions, workspaces")
             } header: {
                 Text("What it searches")

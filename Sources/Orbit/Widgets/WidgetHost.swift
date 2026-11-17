@@ -98,7 +98,9 @@ enum WidgetVisibility {
 }
 
 /// Lays widgets out on a grid of equal cells; expanded widgets span two.
-/// One or two rows fill the available height; further rows scroll.
+/// One or two rows fill the available height; further rows scroll. A row
+/// that isn't full shares its width between its widgets (Milestone 21), so
+/// there's never an empty hole at the end of the Overview.
 struct WidgetGrid: View {
     let widgets: [DashboardModel.PlacedWidget]
     var columns = 3
@@ -114,11 +116,13 @@ struct WidgetGrid: View {
             HubScroll(indicators: .never) {
                 VStack(spacing: spacing) {
                     ForEach(rows.indices, id: \.self) { rowIndex in
+                        let row = rows[rowIndex].map { widgets[$0] }
+                        let spans = row.map { min($0.presentation.span, columns) }
                         HStack(spacing: spacing) {
-                            ForEach(rows[rowIndex].map { widgets[$0] }) { placed in
-                                let span = CGFloat(min(placed.presentation.span, columns))
+                            ForEach(Array(row.enumerated()), id: \.element.id) { index, placed in
                                 WidgetHost(widget: placed.widget, presentation: placed.presentation)
-                                    .frame(width: cell * span + spacing * (span - 1))
+                                    .frame(width: Self.width(span: spans[index], rowSpans: spans, total: geometry.size.width,
+                                                             cell: cell, spacing: spacing, columns: columns))
                             }
                             Spacer(minLength: 0)
                         }
@@ -128,6 +132,16 @@ struct WidgetGrid: View {
             }
             .scrollBounceBehavior(.basedOnSize)  // a grid that fits never rubber-bands (e.g. after a card's list ends)
         }
+    }
+}
+
+extension WidgetGrid {
+    /// A widget's width in its row: whole cells in a full row; a row that isn't full shares the width by span.
+    static func width(span: Int, rowSpans: [Int], total: CGFloat, cell: CGFloat, spacing: CGFloat, columns: Int) -> CGFloat {
+        let used = rowSpans.reduce(0, +)
+        guard used < columns, used > 0 else { return max(0, cell * CGFloat(span) + spacing * CGFloat(span - 1)) }
+        let free = total - spacing * CGFloat(rowSpans.count - 1)
+        return max(0, free * CGFloat(span) / CGFloat(used))
     }
 }
 

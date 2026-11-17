@@ -244,6 +244,22 @@ final class FileShelf {
         return items.filter { $0.sourcePath.hasPrefix(base + "/") }.sorted { $0.addedAt > $1.addedAt }
     }
 
+    /// The files to AirDrop (Milestone 20): each shelved item that's still there. Missing ones are skipped.
+    func airDropURLs(_ chosen: [ShelfItem]) -> [URL] { chosen.compactMap(resolve) }
+
+    /// AirDrop through macOS's own sheet (public `NSSharingService`, no permission): the user picks
+    /// the recipient there, so nothing leaves the Mac without that choice.
+    func airDrop(_ chosen: [ShelfItem]) {
+        let urls = airDropURLs(chosen)
+        guard !urls.isEmpty else { message = "Those files are no longer there."; return }
+        guard let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: urls) else {
+            message = "AirDrop isn't available right now (check Wi-Fi and Bluetooth)."
+            return
+        }
+        message = nil
+        service.perform(withItems: urls)
+    }
+
     /// Quick Look, the system's own preview (read-only: nothing is opened in another app or run).
     func preview(_ item: ShelfItem) {
         guard let url = resolve(item) else { message = "\(item.name) is no longer there."; return }
@@ -350,6 +366,8 @@ private struct FileShelfView: View {
                     }
                     Spacer()
                     if !compact {
+                        OrbitLinkButton(title: "AirDrop All") { shelf.airDrop(shelf.visibleItems) }
+                            .help("Send every file shown with AirDrop; macOS asks who to send to")
                         Menu("Keep for") {
                             ForEach(FileShelf.expiryChoices, id: \.self) { days in
                                 Button("\(days) day\(days == 1 ? "" : "s")") { shelf.setExpiry(days) }
@@ -425,6 +443,7 @@ private struct FileShelfView: View {
         .contextMenu {
             Button("Quick Look") { shelf.preview(item) }
             Button("Show in Finder") { shelf.reveal(item) }
+            Button("AirDrop…") { shelf.airDrop([item]) }
             Button("Copy Path for an Agent") { shelf.copyPathForAgent(item) }
             if item.storage == .reference, let url = shelf.resolve(item), !item.isFolder {
                 Button("Keep a Copy in Orbit") {

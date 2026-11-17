@@ -2,7 +2,7 @@ import Testing
 @testable import Orbit
 
 private let builtInOrder = [
-    "clock", "weather", "battery", "quickActions", "tasks", "pomodoro", "goals", "weekly", "digest", "clipboard", "quickNote", "eyeBreak", "fileShelf", "events", "news", "linkedin",
+    "clock", "weather", "battery", "quickActions", "tasks", "pomodoro", "goals", "weekly", "digest", "clipboard", "quickNote", "eyeBreak", "fileShelf", "events", "month", "news", "linkedin",
     "projects", "github", "vault", "system", "brightness", "storage", "network", "keepAwake", "ai", "nowPlaying",
 ]
 
@@ -23,9 +23,9 @@ private let builtInOrder = [
     }
     // Mock-backed widgets must say so (SAMPLE badge); live ones must not.
     #expect(metadata.filter { $0.availability == .sample }.map(\.id) == ["github", "ai"])
-    // The Overview default stays the six Step 3 widgets.
+    // Milestone 21: the header shows the time and battery, so the Overview starts with five roomier cards.
     #expect(metadata.filter(\.isEnabledByDefault).map(\.id)
-            == ["clock", "weather", "battery", "quickActions", "tasks", "events"])
+            == ["weather", "quickActions", "tasks", "events", "nowPlaying"])
 }
 
 @MainActor @Test func everySectionHasWidgets() {

@@ -113,6 +113,17 @@ final class PomodoroWidget: DashboardWidget {
         }
     }
 
+    /// Settings › Productivity (Milestone 20). A run in progress keeps its own end; the next one uses these.
+    static let focusChoices = [15, 25, 30, 45, 50, 60, 90]
+    static let breakChoices = [5, 10, 15, 20]
+
+    func setLengths(focusMinutes: Int, breakMinutes: Int) {
+        stored.update {
+            $0.focusLength = TimeInterval(min(max(focusMinutes, 5), 120) * 60)
+            $0.breakLength = TimeInterval(min(max(breakMinutes, 1), 60) * 60)
+        }
+    }
+
     func startTimer() {
         settle()
         let time = now()

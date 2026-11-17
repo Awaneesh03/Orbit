@@ -6,9 +6,9 @@ import SwiftUI
 // controls, so glass is never stacked under more glass.
 
 enum OrbitGlass {
-    static let cardRadius: CGFloat = 18
+    static let cardRadius: CGFloat = 20
     static let innerRadius: CGFloat = 12
-    static let cardPadding: CGFloat = 14
+    static let cardPadding: CGFloat = 16
 
     // Built once, shared by every card.
     static let cardFill = LinearGradient(

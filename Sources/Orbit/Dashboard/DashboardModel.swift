@@ -47,6 +47,10 @@ final class DashboardModel {
     let registry: WidgetRegistry
     /// The Context Engine's suggestions for the Overview (Milestone 17; set by the app).
     @ObservationIgnored var context: ContextEngine?
+    /// The launcher's countdown (Milestone 21; set by the app), shown in the header while it runs.
+    @ObservationIgnored var quickTimer: QuickTimer?
+    /// The battery, from the app's power watcher (nil: no battery); the header shows it.
+    var battery: BatteryStatus?
     private(set) var layout: WidgetLayout
     private let store: WidgetLayoutStore
     private let noticeDuration: Duration
@@ -102,6 +106,10 @@ final class DashboardModel {
     }
 
     func setEnabled(_ id: WidgetID, _ isEnabled: Bool) { update { $0.setEnabled(id, isEnabled) } }
+
+    /// Milestone 21, once: the header shows the time and battery, so their cards leave the Overview
+    /// (they stay on their own pages and can be turned back on in Settings › Widgets).
+    func tidyForHeader() { update { layout in ["clock", "battery"].forEach { layout.setEnabled($0, false) } } }
     func setPresentation(_ id: WidgetID, _ presentation: WidgetPresentation) { update { $0.setPresentation(id, presentation) } }
     func move(_ id: WidgetID, to index: Int) { update { $0.move(id, to: index) } }
     func resetLayout() { apply(.defaults(for: registry.metadata)) }

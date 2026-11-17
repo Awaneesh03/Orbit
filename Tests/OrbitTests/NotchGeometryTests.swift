@@ -56,4 +56,8 @@ private let right = CGRect(x: 824.5, y: 924, width: 645.5, height: 32)
     let dashboard = NotchGeometry.dashboardRect(trigger: trigger, screen: narrow)
     #expect(dashboard.minX == narrow.minX)
     #expect(dashboard.maxX <= narrow.maxX)
+    // Milestone 21: the 860 pt dashboard on a 700 pt screen shrinks to fit rather than hanging off it.
+    let tiny = CGRect(x: 0, y: 0, width: 700, height: 400)
+    let fitted = NotchGeometry.dashboardRect(trigger: CGRect(x: 300, y: 376, width: 100, height: 24), screen: tiny)
+    #expect(fitted.minX == 0 && fitted.width == 700 && fitted.height == 400)
 }

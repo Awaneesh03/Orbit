@@ -15,7 +15,7 @@ private func card(_ id: String = "test") -> some View {
 // MARK: Tokens and rules
 
 @Test func tokensMatchTheApprovedDesign() {
-    #expect(OrbitGlass.cardRadius == 18)
+    #expect(OrbitGlass.cardRadius == 20)  // Milestone 21: roomier cards
     #expect(Theme.cardRadius == 18)
     #expect(OrbitGlass.innerRadius == 12)
     #expect(Theme.accent == Color(red: 0.56, green: 0.62, blue: 1.0))  // Orbit's indigo, unchanged

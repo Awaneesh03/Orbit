@@ -1131,3 +1131,96 @@ breathe, particles and glow on a 41×20 fill (86 % of the inner width); Orbit
 0.0–0.1 % CPU while it animated, WindowServer unchanged (~42 % on this Mac
 with or without it); the layers are gone when the dashboard closes. The live
 completion needs a charge to 100 %: not seen yet.
+
+## M19. Public showcase and documentation (2026-11-17)
+
+README, `docs/` (Architecture, Installation, Features, Privacy, Troubleshooting,
+Contributing, public Roadmap, GitHub presentation notes), issue and pull request
+templates, and an unpublished static site (`docs/index.html`). No app changes.
+
+## M20. Sapphire parity, completed settings (2026-11-17)
+
+Sapphire's features (github.com/cshariq/Sapphire, sapphire-app.tech) were listed
+and each was built where public APIs allow it without a new permission; the
+rest are recorded with the reason in `docs/FEATURES.md` › Compared with
+Sapphire. The Quick Mirror was offered and declined (it would add Camera).
+
+- **Bluetooth device notices** (`Notch/DeviceNotices.swift`): IOBluetooth's
+  connect/disconnect notifications → a 3 s note in the shared slot, a new row
+  in `NotchCoordination` after the eye break (before the status pill). Starts
+  only when Bluetooth access is already granted (it follows
+  `BluetoothModel.access`); devices connected at start are the baseline, a
+  flapping device is announced once per state in 10 s, and a notice that
+  can't get the slot is dropped, not queued. Settings › General › Devices.
+- **Lyrics** (`Services/Lyrics.swift`): off by default; LRCLIB `/api/search`
+  (no key) once per new track, memory cache of 40; YouTube titles cleaned
+  ("Artist - Song (Official Video)"); synced lines follow the position
+  (YouTube in Brave), plain text for Apple Music (no position). Expanded Now
+  Playing widget. Settings › General › Music Island.
+- **Month** widget (`Widgets/MonthCalendarWidget.swift`): six-week grid from
+  the calendar's first weekday, months back and forward, a day's events with
+  Join; reads the Calendar widget's store and calendars only when already
+  connected, off the main thread, released when hidden.
+- **AirDrop** from the File Shelf (`NSSharingService(.sendViaAirDrop)`): per
+  item and "AirDrop All"; missing files skipped.
+- **Launcher calculator and Apple Shortcuts** (`Launcher/LauncherExtras.swift`):
+  a recursive-descent parser (+ − × ÷ % ^, parentheses, π; bare numbers stay
+  searches; a sum is never remembered; Return copies an ungrouped number).
+  Shortcuts from `/usr/bin/shortcuts list`, run by name only on Return
+  (⌘Return opens it in Shortcuts); Settings › Launcher toggle.
+- **Settings completed:** a new Productivity pane (focus and break lengths, eye
+  break, clipboard history on/off and size 20/40/100/200, File Shelf expiry
+  and clear); the clipboard switch is remembered (history still memory only);
+  Privacy now lists Location and Bluetooth with live status (the Location row
+  still said "sample data"); About and the AI Hub's stale texts fixed.
+
+**Verified.** 784 tests (765 before; 19 new in `Milestone20Tests`), three
+full runs green; debug and release builds clean, no new warnings. Live
+(debug build): launcher `12*4+3` → "= 51" first, `2^10` → "= 1,024" (copies
+1024); a simulated device notice took the slot (holder deviceNotice),
+rendered, and left after 3 s. Not verified live: a real Bluetooth
+connect (this ad-hoc build has no Bluetooth grant yet), real lyrics from
+LRCLIB, AirDrop's sheet, running a real shortcut, the Month widget with real
+calendars.
+
+## M21. Notch redesign, notch switch, live activities (2026-11-17)
+
+Checked against boring.notch, Atoll and DynamicNotch on GitHub (table in
+`docs/FEATURES.md`). The notch felt cramped (seven text tabs above a dense
+740 × 420 grid), so the shell was redesigned (`Dashboard/DashboardView.swift`):
+
+- **Grows out of the notch.** The surface starts at the camera housing's size
+  and springs to the panel (response 0.38, damping 0.8), revealing the content
+  through it; closing is a 0.26 s spring without overshoot. Reduce Motion and
+  Low Power Mode give a 0.15 s fade.
+- **Header beside the camera** (the row was empty): settings, time and date,
+  battery (from the event-driven `PowerWatcher`), a running timer; on the
+  right, icon tabs with the selected one widening to its name.
+- **Roomier:** 860 × 480 (capped to the screen), 20 pt cards with 16 pt
+  padding; a row that isn't full shares its width (no empty hole).
+- **Less on the Overview:** Clock and Battery are off by default (the header
+  shows both; a one-time tidy turned them off in existing layouts, Settings ›
+  Widgets brings them back); Now Playing is on.
+- **Settings › Notch:** Use the notch (off = owner `.off`, Orbit leaves the
+  notch as for Coucou; ⌃⌥⌘O still opens it), open on hover or click, close
+  delay, live activities, Save energy in Low Power Mode.
+- **Live activities** (`Notch/LiveActivities.swift`, one notch-note slot):
+  charger connected or removed, fully charged, 20 % and 10 %; a quick timer
+  ("timer 10m tea" in the launcher, header chip, note and sound); a colour
+  picker (NSColorSampler, no permission; hex copied).
+- A code review (`/code-review`) found 10 issues, all fixed: the timer row
+  lost when Spotlight answered, "-2^2", dates as sums, Apple Music titles
+  split as "Artist - Song", lyrics kept during an ad, timer labels lowercased,
+  Shortcuts listed while off, the header battery up to a minute late, the
+  Month widget not reloading, watchers running with the notch off.
+
+**Verified.** 804 tests (784 before), full runs green; debug and release
+builds clean. Renders of the redesigned Overview and Productivity pages
+(offscreen; text fields draw as placeholders there). Live, release build,
+MacBook Air M4: closed 0.0–0.2 % CPU; opening 13.6 % for under a second;
+held open 0.0 %; footprint 44 MB. Live (debug): the notch switch (owner off,
+pointer ignored, notes suppressed, back on), a 3 s timer's note, a charging
+note. Not verified by eye: the opening spring on screen (it can't be
+captured without Screen Recording), click-to-open by hand, a real charger
+event, the colour loupe.
+

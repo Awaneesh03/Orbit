@@ -1,4 +1,6 @@
 import AppKit
+import CoreBluetooth
+import CoreLocation
 import EventKit
 import ServiceManagement
 
@@ -37,6 +39,12 @@ enum WidgetSpacing: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// How the notch dashboard opens (Milestone 21).
+enum NotchOpening: String, Codable, CaseIterable, Sendable {
+    case hover, click
+    var title: String { self == .hover ? "Hover over the notch" : "Click the notch" }
+}
+
 /// User preferences. The defaults reproduce Orbit's approved design exactly.
 struct OrbitPreferences: Codable, Equatable, Sendable {
     static let hideDelayRange: ClosedRange<Double> = 0.3...3
@@ -47,6 +55,12 @@ struct OrbitPreferences: Codable, Equatable, Sendable {
     static let meetingUrgentRange: ClosedRange<Int> = 1...10
 
     var hideDelay = 1.0
+    /// Milestone 21: the notch master switch. Off: no hover dashboard, island, HUDs, alerts or notices in the
+    /// notch (as when Coucou has it); the dashboard still opens with its shortcut.
+    var notchEnabled = true
+    var notchOpen = NotchOpening.hover
+    /// Follow macOS Low Power Mode: no opening morph, no decorative motion, while it's on.
+    var lowPowerFollows = true
     var appearance = AppearancePreference.dark
     var dashboardOpacity = 0.85
     var widgetSpacing = WidgetSpacing.regular
@@ -93,11 +107,25 @@ struct OrbitPreferences: Codable, Equatable, Sendable {
     /// Milestone 16: the Universal Launcher's shortcut and whether it searches files (Spotlight, names only).
     var launcherShortcut = LauncherShortcut.controlOptionSpace
     var launcherFiles = true
+    /// Milestone 20: Apple Shortcuts in the launcher (Return runs one you chose).
+    var launcherShortcuts = true
     /// The Battery widget's Apps Using Significant Energy (sampled only while it shows) and charging animation.
     var batteryEnergy = true
     var chargingAnimation = true
+    /// Milestone 20: a 3 s note below the notch when a Bluetooth device connects or disconnects
+    /// (only once Orbit has Bluetooth access; it never asks for it).
+    var deviceNotices = true
+    /// Milestone 21: charger connected or removed, fully charged, low battery, as a note below the notch.
+    var powerNotices = true
+    /// Lyrics in the expanded Now Playing widget, from LRCLIB (the track's title and artist are sent). Off by default.
+    var lyrics = false
+    /// Clipboard history's switch and size (Milestone 20). The history itself stays in memory only.
+    var clipboardHistory = false
+    var clipboardLimit = ClipboardHistory.limit
     /// The Get Started page has been shown once.
     var onboardingSeen = false
+    /// Milestone 21's one-time tidy of the Overview (the header now shows the time and battery) is done.
+    var headerTidyDone = false
     /// Proactive suggestions (Milestone 17): conservative by default (2 at most).
     var suggestions = SuggestionPreferences()
 
@@ -109,6 +137,9 @@ struct OrbitPreferences: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = OrbitPreferences()
         hideDelay = (try? container.decode(Double.self, forKey: .hideDelay)) ?? defaults.hideDelay
+        notchEnabled = (try? container.decode(Bool.self, forKey: .notchEnabled)) ?? defaults.notchEnabled
+        notchOpen = (try? container.decode(NotchOpening.self, forKey: .notchOpen)) ?? defaults.notchOpen
+        lowPowerFollows = (try? container.decode(Bool.self, forKey: .lowPowerFollows)) ?? defaults.lowPowerFollows
         appearance = (try? container.decode(AppearancePreference.self, forKey: .appearance)) ?? defaults.appearance
         dashboardOpacity = (try? container.decode(Double.self, forKey: .dashboardOpacity)) ?? defaults.dashboardOpacity
         widgetSpacing = (try? container.decode(WidgetSpacing.self, forKey: .widgetSpacing)) ?? defaults.widgetSpacing
@@ -134,9 +165,16 @@ struct OrbitPreferences: Codable, Equatable, Sendable {
         automations = AutomationRule.decodeList(container, forKey: .automations) ?? defaults.automations
         launcherShortcut = (try? container.decode(LauncherShortcut.self, forKey: .launcherShortcut)) ?? defaults.launcherShortcut
         launcherFiles = (try? container.decode(Bool.self, forKey: .launcherFiles)) ?? defaults.launcherFiles
+        launcherShortcuts = (try? container.decode(Bool.self, forKey: .launcherShortcuts)) ?? defaults.launcherShortcuts
         batteryEnergy = (try? container.decode(Bool.self, forKey: .batteryEnergy)) ?? defaults.batteryEnergy
         chargingAnimation = (try? container.decode(Bool.self, forKey: .chargingAnimation)) ?? defaults.chargingAnimation
+        deviceNotices = (try? container.decode(Bool.self, forKey: .deviceNotices)) ?? defaults.deviceNotices
+        powerNotices = (try? container.decode(Bool.self, forKey: .powerNotices)) ?? defaults.powerNotices
+        lyrics = (try? container.decode(Bool.self, forKey: .lyrics)) ?? defaults.lyrics
+        clipboardHistory = (try? container.decode(Bool.self, forKey: .clipboardHistory)) ?? defaults.clipboardHistory
+        clipboardLimit = (try? container.decode(Int.self, forKey: .clipboardLimit)) ?? defaults.clipboardLimit
         onboardingSeen = (try? container.decode(Bool.self, forKey: .onboardingSeen)) ?? defaults.onboardingSeen
+        headerTidyDone = (try? container.decode(Bool.self, forKey: .headerTidyDone)) ?? defaults.headerTidyDone
         suggestions = (try? container.decode(SuggestionPreferences.self, forKey: .suggestions)) ?? defaults.suggestions
         self = clamped()
     }
@@ -155,6 +193,7 @@ struct OrbitPreferences: Codable, Equatable, Sendable {
         copy.hudSeconds = min(max(hudSeconds.isFinite ? hudSeconds : 1.5, Self.hudSecondsRange.lowerBound), Self.hudSecondsRange.upperBound)
         copy.meetingNoticeMinutes = meetingNoticeMinutes.clamped(to: Self.meetingNoticeRange)
         copy.meetingUrgentMinutes = meetingUrgentMinutes.clamped(to: Self.meetingUrgentRange)
+        if !ClipboardHistory.limitChoices.contains(clipboardLimit) { copy.clipboardLimit = ClipboardHistory.limit }
         return copy
     }
 }
@@ -186,6 +225,9 @@ final class PreferencesModel {
         let defaults = OrbitPreferences()
         update {
             $0.hideDelay = defaults.hideDelay
+            $0.notchEnabled = defaults.notchEnabled
+            $0.notchOpen = defaults.notchOpen
+            $0.lowPowerFollows = defaults.lowPowerFollows
             $0.musicIsland = defaults.musicIsland
             $0.musicIslandSeconds = defaults.musicIslandSeconds
             $0.volumeHUD = defaults.volumeHUD
@@ -195,6 +237,9 @@ final class PreferencesModel {
             $0.statusDisplay = defaults.statusDisplay
             $0.batteryEnergy = defaults.batteryEnergy
             $0.chargingAnimation = defaults.chargingAnimation
+            $0.deviceNotices = defaults.deviceNotices
+            $0.powerNotices = defaults.powerNotices
+            $0.lyrics = defaults.lyrics
             $0.meetingHeadsUp = defaults.meetingHeadsUp
             $0.meetingNoticeMinutes = defaults.meetingNoticeMinutes
             $0.meetingUrgentMinutes = defaults.meetingUrgentMinutes
@@ -283,8 +328,11 @@ enum PermissionCatalog {
                   purpose: "Today's agenda in the Calendar widget, read-only, after you click Connect Calendar",
                   status: calendarStatus()),
             .init(name: "Location", need: .optional,
-                  purpose: "Future: local weather (it shows sample data today)",
-                  status: "Never requested by Orbit"),
+                  purpose: "Local weather and the Wi-Fi network's name, only after you click Use My Location (Weather) or Allow (System › Wi-Fi)",
+                  status: locationStatus()),
+            .init(name: "Bluetooth", need: .optional,
+                  purpose: "Paired devices in System › Bluetooth and device notices below the notch, after you click Show Devices",
+                  status: bluetoothStatus()),
             .init(name: "Accessibility", need: .unused,
                   purpose: "No global key monitoring or control of other windows",
                   status: AXIsProcessTrusted() ? "Allowed, but not used" : "Not granted"),
@@ -295,6 +343,26 @@ enum PermissionCatalog {
                   purpose: "Drops and Paste carry your permission; Orbit stores data only in its own folder",
                   status: "Never requested by Orbit"),
         ]
+    }
+
+    private static func locationStatus() -> String {
+        switch CLLocationManager().authorizationStatus {
+        case .notDetermined: "Never requested by Orbit"
+        case .authorizedAlways: "Allowed"
+        case .denied: "Denied"
+        case .restricted: "Restricted"
+        @unknown default: "Unknown"
+        }
+    }
+
+    private static func bluetoothStatus() -> String {
+        switch CBManager.authorization {
+        case .notDetermined: "Never requested by Orbit"
+        case .allowedAlways: "Allowed"
+        case .denied: "Denied"
+        case .restricted: "Restricted"
+        @unknown default: "Unknown"
+        }
     }
 
     private static func calendarStatus() -> String {

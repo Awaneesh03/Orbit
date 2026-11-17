@@ -19,7 +19,9 @@ struct ClipboardItem: Identifiable, Equatable, Sendable {
 @MainActor @Observable
 final class ClipboardHistory {
     static let shared = ClipboardHistory()
-    static let limit = 40
+    nonisolated static let limit = 40
+    /// Settings › Productivity › Keep the last (Milestone 20). Still memory only.
+    nonisolated static let limitChoices = [20, 40, 100, 200]
     static let maxLength = 20_000
     /// The nspasteboard.org markers: never recorded.
     static let privateTypes: Set<String> = ["org.nspasteboard.ConcealedType", "org.nspasteboard.TransientType",
@@ -27,6 +29,12 @@ final class ClipboardHistory {
 
     private(set) var items: [ClipboardItem] = []
     private(set) var isOn = false
+    /// How many items are kept; lowering it drops the oldest at once.
+    var capacity = ClipboardHistory.limit {
+        didSet { if items.count > capacity { items.removeLast(items.count - capacity) } }
+    }
+    /// The widget's switch was flipped (the app saves the choice; the history itself is never saved).
+    @ObservationIgnored var onUserToggle: ((Bool) -> Void)?
     @ObservationIgnored private var lastChange = 0
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private let read: @MainActor () -> (change: Int, text: String?, types: Set<String>)
@@ -75,7 +83,7 @@ final class ClipboardHistory {
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, text.count <= Self.maxLength else { return }
         items.removeAll { $0.text == text }  // copied again: moves to the top
         items.insert(ClipboardItem(text: text, copiedAt: clock()), at: 0)
-        if items.count > Self.limit { items.removeLast(items.count - Self.limit) }
+        if items.count > capacity { items.removeLast(items.count - capacity) }
     }
 
     /// Puts an item back on the clipboard (and at the top), without recording it twice.
@@ -86,6 +94,12 @@ final class ClipboardHistory {
     }
 
     func remove(_ item: ClipboardItem) { items.removeAll { $0.id == item.id } }
+
+    /// From the widget's switch: the same as `setOn`, and the choice is remembered.
+    func userSetOn(_ on: Bool) {
+        setOn(on)
+        onUserToggle?(on)
+    }
     func clear() { items = [] }
 }
 
@@ -112,13 +126,13 @@ private struct ClipboardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                OrbitSwitch(label: "Clipboard history", isOn: history.isOn, set: history.setOn)
+                OrbitSwitch(label: "Clipboard history", isOn: history.isOn, set: history.userSetOn)
                 Text(history.isOn ? "Recording copies" : "Off").font(OrbitType.caption).foregroundStyle(Theme.secondary)
                 Spacer()
                 if !history.items.isEmpty { OrbitLinkButton(title: "Clear", action: history.clear) }
             }
             if !history.isOn {
-                Text("Keeps your last \(ClipboardHistory.limit) copied texts and links in memory only, never on disk. Passwords that apps mark as private are skipped.")
+                Text("Keeps your last \(history.capacity) copied texts and links in memory only, never on disk. Passwords that apps mark as private are skipped.")
                     .font(OrbitType.caption).foregroundStyle(Theme.tertiary).fixedSize(horizontal: false, vertical: true)
             } else if history.items.isEmpty {
                 StatusMessage(text: "Copy something to see it here.", symbol: "doc.on.clipboard")

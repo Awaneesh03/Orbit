@@ -12,7 +12,8 @@ import SwiftUI
 final class BatteryWidget: DashboardWidget {
     let metadata = WidgetMetadata(
         id: "battery", title: "Battery", description: "Charge, power source and apps using significant energy",
-        symbol: "battery.100percent", category: .system, availability: .live, presentations: [.compact, .expanded])
+        symbol: "battery.100percent", category: .system, availability: .live, presentations: [.compact, .expanded],
+        isEnabledByDefault: false)  // the header shows the battery (M21); its own page is System
     private(set) var state = WidgetState.loading
     private(set) var status: BatteryStatus?
     /// Settings › General › Battery (set by the app).

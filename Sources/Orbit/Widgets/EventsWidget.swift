@@ -267,7 +267,7 @@ private struct AgendaRow: View {
 }
 
 /// Opens a validated meeting link (Milestone 15), only when clicked: the browser or the meeting's app.
-private struct JoinButton: View {
+struct JoinButton: View {
     let url: URL
 
     var body: some View {

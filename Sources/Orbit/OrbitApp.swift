@@ -83,6 +83,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastMeetingTrigger: String?
     private var wingsGeneration = 0
     private var eyeBreakPanel: EyeBreakPanel?
+    /// Milestone 20: Bluetooth connect/disconnect notices below the notch.
+    private let deviceNotices = DeviceNotices()
+    private lazy var bluetoothWatcher = BluetoothConnectionWatcher(notices: deviceNotices)
+    private var deviceNoticePanel: DeviceNoticePanel?
+    /// Milestone 21: live activities (power changes, a quick timer, the colour picker).
+    private let powerWatcher = PowerWatcher()
+    private let quickTimer = QuickTimer()
     /// What the pet renderers last showed (diagnostics: `pet:selection`).
     private var petSelection = PetSelection.builtIn
     private var terminationSignal: DispatchSourceSignal?
@@ -92,6 +99,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         preferences.onChange = { [weak self] in self?.apply($0) }
         apply(preferences.value)
         dashboard.briefing = briefing.value
+        if !preferences.value.headerTidyDone {
+            dashboard.tidyForHeader()
+            preferences.update { $0.headerTidyDone = true }
+        }
         briefing.onChange = { [weak self] in self?.dashboard.briefing = $0 }  // Settings › Widgets: the tab follows at once
         routeSettingsShortcut()
         NotificationCenter.default.addObserver(forName: SettingsWindowController.showRequest, object: nil, queue: .main) { [weak self] note in
@@ -111,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startSonicPulse()
         startWings()
         startEyeBreak()
+        startDeviceNotices()
         startAgentAlerts()
         connectShelf()
         startAutomations()
@@ -141,6 +153,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             log.notice("drag copies: removed \(removed) expired in \(start.duration(to: .now), privacy: .public)")
         }
 
+        // Low Power Mode on or off: motion follows it at once (Milestone 21).
+        NotificationCenter.default.addObserver(forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { if let self { self.apply(self.preferences.value) } }
+        }
         NotificationCenter.default.addObserver(
             self, selector: #selector(screensChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -180,14 +196,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.show()
     }
 
+    /// Reduce Motion as Orbit applies it: the setting, or Low Power Mode while "follow Low Power Mode" is on (Milestone 21).
+    nonisolated static func reducesMotion(_ value: OrbitPreferences, lowPower: Bool) -> Bool {
+        value.reduceMotion || (value.lowPowerFollows && lowPower)
+    }
+
+    private var motionReduced: Bool { Self.reducesMotion(preferences.value, lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled) }
+
     private func apply(_ value: OrbitPreferences) {
+        let reduced = Self.reducesMotion(value, lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         interaction.hideDelay = .milliseconds(Int(value.hideDelay * 1000))
-        island.reduceMotion = value.reduceMotion
-        overlay.hud.reduceMotion = value.reduceMotion
-        overlay.brightness.reduceMotion = value.reduceMotion
+        island.reduceMotion = reduced
+        overlay.hud.reduceMotion = reduced
+        overlay.brightness.reduceMotion = reduced
         overlay.hud.dismissDelay = .milliseconds(Int(value.hudSeconds * 1000))
         overlay.brightness.dismissDelay = .milliseconds(Int(value.hudSeconds * 1000))
-        petActivity.setReduceMotion(value.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        petActivity.setReduceMotion(reduced || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         pet.toggles = value.petToggles  // the Desktop Pet follows the model's toggles
         let look = value.petLook.appearance
         desktopPet?.rig.setAppearance(look)
@@ -195,21 +219,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pet.behavior = value.petLook.behavior
         applyCharacter(value.petLook)
         aiHub.set(enabled: value.aiHub, demo: value.aiHubDemo)
-        aiHub.alerts.reduceMotion = value.reduceMotion
+        aiHub.alerts.reduceMotion = reduced
         aiHub.alerts.rules = value.agentAlerts
         automations.rules = value.automations
         if let battery = dashboard.registry.widget("battery") as? BatteryWidget {
             battery.showsEnergy = value.batteryEnergy
             battery.chargingAnimation = value.chargingAnimation
         }
+        if let nowPlaying = dashboard.registry.widget("nowPlaying") as? NowPlayingWidget, nowPlaying.lyrics.isEnabled != value.lyrics {
+            nowPlaying.lyrics.isEnabled = value.lyrics
+            nowPlaying.lyrics.follow(nowPlaying.coordinator.current)
+        }
+        let clipboard = ClipboardHistory.shared
+        clipboard.capacity = value.clipboardLimit
+        clipboard.setOn(value.clipboardHistory)
+        clipboard.onUserToggle = { [weak self] on in self?.preferences.update { $0.clipboardHistory = on } }
         if context.preferences != value.suggestions { context.preferences = value.suggestions }
         if launcherPanel != nil {
             launcher.searchesFiles = value.launcherFiles
+            launcher.searchesShortcuts = value.launcherShortcuts
             if value.launcherShortcut != launcherShortcut { applyLauncherShortcut(value.launcherShortcut) }
         }
         updateNotchPolicy(value)  // alerts, the volume HUD (at launch startSonicPulse applies it), the island, the trigger
         island.autoDismiss = .milliseconds(Int(value.musicIslandSeconds * 1000))
-        dashboard.preferences = value
+        var shown = value
+        shown.reduceMotion = reduced  // the dashboard, its widgets and the charging animation follow Low Power Mode too
+        dashboard.preferences = shown
         settings.apply(value.appearance)
     }
 
@@ -230,6 +265,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         companionPanel?.stop()
         companionCharacter?.stop()
         hotKey?.unregister()
+        bluetoothWatcher.stop()
+        powerWatcher.stop()
+        quickTimer.cancel()
         coucou.stop()
         aiHub.shutdown()
         pet.shutdown()
@@ -258,6 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             followWings(wingsGeneration)
         }
         eyeBreakPanel?.reposition()
+        deviceNoticePanel?.reposition()
         panel?.reposition()
         islandPanel?.reposition()
         hudPanel?.reposition()
@@ -291,7 +330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             (NSWorkspace.sessionDidResignActiveNotification, { $0.setSessionLocked(true) }),
             (NSWorkspace.sessionDidBecomeActiveNotification, { $0.setSessionLocked(false) }),
             (NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, { [weak self] activity in
-                activity.setReduceMotion((self?.preferences.value.reduceMotion ?? false)
+                activity.setReduceMotion((self?.motionReduced ?? false)
                                          || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
                 HubAppearance.shared.increasedContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
                 if let self, self.wingsPanel != nil {  // the wings and pill take the new Reduce Motion at once
@@ -328,6 +367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if skipped != .agentAlert { inputs.alert = aiHub.alerts.current != nil }
         if skipped != .eyeBreak, let model = (dashboard.registry.widget("eyeBreak") as? EyeBreakWidget)?.model,
            case .resting = model.phase { inputs.eyeBreak = true }
+        if skipped != .deviceNotice { inputs.deviceNotice = deviceNotices.current != nil }
         if skipped != .statusPill { inputs.statusPill = contextPill.content != nil }
         if skipped != .companion { inputs.companion = companionWanted }
         return inputs
@@ -339,6 +379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch surface {
         case .agentAlert: inputs.alert = true
         case .eyeBreak: inputs.eyeBreak = true
+        case .deviceNotice: inputs.deviceNotice = true
         case .statusPill: inputs.statusPill = true
         case .companion: inputs.companion = true
         default: break
@@ -346,7 +387,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return NotchCoordination.holder(inputs)
     }
 
-    private var notchOwner: NotchCoordination.Owner { .init(coucouRunning: coucou.state.isRunning) }
+    private var notchOwner: NotchCoordination.Owner {
+        .init(coucouRunning: coucou.state.isRunning, enabled: preferences.value.notchEnabled)
+    }
 
     /// Coucou launched or quit (or Orbit's first look). While it runs it has the
     /// notch: everything Orbit shows there steps aside (§22) except the
@@ -368,11 +411,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateNotchPolicy(_ value: OrbitPreferences) {
         let owner = notchOwner
         aiHub.alerts.isEnabled = value.aiHubAlerts && NotchCoordination.permits(.agentAlert, owner: owner) && !companionWanted
+        deviceNotices.isEnabled = NotchCoordination.permits(.deviceNotice, owner: owner)
+        // Bluetooth notifications only while a notice could show; the power watcher always (it feeds the header's battery).
+        if value.deviceNotices && deviceNotices.isEnabled { bluetoothWatcher.start() } else { bluetoothWatcher.stop() }
+        powerWatcher.start()
         companion.announces = companionWanted && owner == .orbit
         setSystemHUDs(value)
         if !NotchCoordination.permits(.expandedMusic, owner: owner), island.phase == .expanded { island.collapse() }
         updateIslandCover()
-        panel?.yieldsTrigger = owner == .coucou
+        panel?.yieldsTrigger = owner != .orbit
+        panel?.opensOnClick = value.notchOpen == .click
         if wingsPanel != nil {  // the owner isn't observable: re-follow on each policy change
             wingsGeneration += 1
             followWings(wingsGeneration)
@@ -411,6 +459,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .builtIn:
             log.notice("pet: Orbit illustrated on \(rigs.count, privacy: .public) renderer(s)")
         }
+    }
+
+    /// Bluetooth device notices (Milestone 20): the watcher starts as soon as Orbit has Bluetooth access
+    /// (granted from System › Bluetooth); it never asks for it.
+    private func startDeviceNotices() {
+        deviceNotices.canShow = { [weak self] in self?.slotHolder(.deviceNotice) == .deviceNotice }
+        deviceNoticePanel = DeviceNoticePanel(notices: deviceNotices)
+        followBluetoothAccess()
+        powerWatcher.onNotice = { [weak self] notice in
+            if self?.preferences.value.powerNotices == true { self?.deviceNotices.post(notice) }
+        }
+        powerWatcher.onReading = { [weak self] in self?.dashboard.battery = $0 }
+        dashboard.battery = BatteryStatus.current()  // the watcher started in apply(), before these callbacks were set
+        dashboard.quickTimer = quickTimer
+        quickTimer.onFinish = { [weak self] title in
+            NSSound(named: "Glass")?.play()
+            self?.deviceNotices.post(.init(id: "timer-\(UUID().uuidString)", title: title, detail: "Time's up", symbol: "timer", tint: .accent))
+            if self?.interaction.isOpen == true { self?.dashboard.show("\(title): time's up") }
+        }
+    }
+
+    /// The colour loupe; the hex goes on the clipboard and shows below the notch.
+    private func pickColor() {
+        interaction.close()
+        ColorPick.pick { [weak self] rgb in
+            let hex = ColorPick.hex(red: rgb[0], green: rgb[1], blue: rgb[2])
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(hex, forType: .string)
+            self?.deviceNotices.post(.init(id: "color-\(UUID().uuidString)", title: hex, detail: "Copied to the clipboard",
+                                           symbol: "eyedropper", swatch: rgb))
+        }
+    }
+
+    private func followBluetoothAccess() {
+        let bluetooth = dashboard.system.bluetooth
+        let access = withObservationTracking { bluetooth.access } onChange: { [weak self] in
+            Task { @MainActor in self?.followBluetoothAccess() }
+        }
+        if access == .allowed, preferences.value.deviceNotices, deviceNotices.isEnabled { bluetoothWatcher.start() }
     }
 
     private func startEyeBreak() {
@@ -564,6 +651,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startLauncher() {
         launcher.searchesFiles = preferences.value.launcherFiles
+        launcher.searchesShortcuts = preferences.value.launcherShortcuts
         launcher.sources = { [weak self] in self?.launcherSources() ?? [] }
         launcher.boosted = { [weak self] in Set((self?.workspaces.active).map { $0.projects + $0.apps } ?? []) }
         launcherPanel = LauncherPanel(model: launcher) { [weak self] item, alternate in self?.openLauncherItem(item, alternate: alternate) }
@@ -658,6 +746,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("Pause Music", "pause", "play stop"), ("Battery Settings", "battery", "energy power charging"),
             ("Display Settings", "displays", "brightness monitor resolution"), ("Activity Monitor", "activity", "energy cpu processes"),
             ("Clear Launcher History", "clearHistory", "recent"),
+            ("Pick a Colour", "colorPick", "color colour picker eyedropper hex sample screen"),
+            ("Cancel Timer", "cancelTimer", "timer stop countdown"),
         ]
         for (title, action, keywords) in features {
             items.append(LauncherItem(id: "orbit:" + action, kind: .orbit, title: title, subtitle: "Orbit action", keywords: keywords, action: action))
@@ -681,7 +771,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Items that open an app, a file, a link or Finder let that app take focus; the rest give it back.
         let opensSomething: Bool = switch item.kind {
         case .app, .file, .folder, .project, .event, .agent: true
-        case .shelf, .task, .goal, .setting, .orbit, .workspace: alternate && item.kind == .shelf
+        case .shortcut: alternate
+        case .shelf, .task, .goal, .setting, .orbit, .workspace, .calculation: alternate && item.kind == .shelf
         }
         launcherPanel?.dismiss(restoreFocus: !opensSomething)
         launcher.remember(item)
@@ -724,6 +815,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings.show(section: SettingsSection(rawValue: item.action))
         case .orbit:
             runOrbitAction(item.action)
+        case .calculation:
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(item.action, forType: .string)
+        case .shortcut:
+            if alternate, let url = ShortcutsCatalog.editURL(item.action) { NSWorkspace.shared.open(url) } else { ShortcutsCatalog.runShortcut(item.action) }
         case .workspace:
             guard let id = UUID(uuidString: item.action) else { return }
             if workspaces.active?.id == id { openWorkspace(id) } else { activateWorkspace(id) }
@@ -740,6 +836,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "displays": SystemSettingsLink.displays.open()
         case "activity": QuickAction.activityMonitor.perform()
         case "clearHistory": launcher.clearHistory()
+        case "colorPick": pickColor()
+        case "cancelTimer": quickTimer.cancel()
+        case let timer where timer.hasPrefix("timer|"):
+            let parts = timer.split(separator: "|", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+            if parts.count == 3, let seconds = TimeInterval(parts[1]) { quickTimer.start(seconds, label: parts[2]) }
         default: break
         }
     }
@@ -968,7 +1069,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } onChange: { [weak self] in
             Task { @MainActor in self?.followWings(registered) }
         }
-        let reduceMotion = preferences.value.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let reduceMotion = motionReduced || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         wings.reduceMotion = reduceMotion
         wings.show(content)
         wingsPanel.refreshVisibility()
@@ -1210,7 +1311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let view = ZStack(alignment: .top) {
                 LinearGradient(colors: [Color(red: 0.36, green: 0.42, blue: 0.62), Color(red: 0.78, green: 0.62, blue: 0.55)],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
-                DashboardView(interaction: interaction, model: dashboard, topInset: 32)
+                DashboardView(interaction: interaction, model: dashboard, topInset: 32, notchWidth: 190)
                     .frame(width: size.width, height: size.height)
             }
             .frame(width: size.width + 80, height: size.height + 40)
@@ -1374,6 +1475,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             default: String(describing: EnergyMonitor.shared.state)
             }
             log.notice("energy running=\(EnergyMonitor.shared.isRunning, privacy: .public) took=\(EnergyMonitor.shared.lastSampleDuration, privacy: .public) \(text, privacy: .public)")
+        case let command? where command.hasPrefix("timer:"):  // timer:<seconds> (debug builds only)
+            quickTimer.start(TimeInterval(command.dropFirst(6)) ?? 3, label: "Debug timer")
+            log.notice("timer running=\(self.quickTimer.isRunning, privacy: .public)")
+        case "notice:power":  // a simulated "charger connected" (debug builds only)
+            deviceNotices.post(.init(id: "power", state: "charging-\(Date.now.timeIntervalSince1970)", title: "Charging", detail: "64%",
+                                     symbol: "battery.100percent.bolt", tint: .good, level: 0.64))
+            log.notice("power notice shown=\(self.deviceNotices.current != nil, privacy: .public)")
+        case "notch:state":
+            log.notice("notch owner=\(self.notchOwner.rawValue, privacy: .public) enabled=\(self.preferences.value.notchEnabled, privacy: .public) open=\(self.preferences.value.notchOpen.rawValue, privacy: .public) ignoresMouse=\(self.panel?.ignoresMouseEvents ?? false, privacy: .public) lowPower=\(ProcessInfo.processInfo.isLowPowerModeEnabled, privacy: .public) reduced=\(self.motionReduced, privacy: .public) power=\(self.powerWatcher.isRunning, privacy: .public)")
+        case let command? where command.hasPrefix("notch:enabled:"):
+            preferences.update { $0.notchEnabled = command.hasSuffix("on") }
+        case "device:notice":  // a simulated notice (debug builds only), to see the panel without real Bluetooth
+            deviceNotices.post(.device(id: "debug-\(Date.now.timeIntervalSince1970)", name: "Simulated Headphones", symbol: "headphones",
+                                       connected: true, battery: 72))
+            log.notice("device notice shown=\(self.deviceNotices.current != nil, privacy: .public) watcher=\(self.bluetoothWatcher.isRunning, privacy: .public) holder=\(String(describing: NotchCoordination.holder(self.slotInputs())), privacy: .public)")
+        case let command? where command.hasPrefix("device:render:"):
+            if let view = deviceNoticePanel?.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: rep)
+                let ok = (try? rep.representation(using: .png, properties: [:])?.write(to: URL(filePath: String(command.dropFirst("device:render:".count))))) != nil
+                log.notice("device render \(ok, privacy: .public) visible=\(self.deviceNoticePanel?.isVisible ?? false, privacy: .public)")
+            }
         case "pill:expand": contextPill.toggle()
         case "pill:collapse": contextPill.collapse()
         case let command? where command.hasPrefix("pill:render:"):

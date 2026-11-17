@@ -18,6 +18,28 @@ enum DashboardSection: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The tab's icon (Milestone 21: icons in the header beside the camera).
+    var symbol: String {
+        switch self {
+        case .overview: "square.grid.2x2.fill"
+        case .briefing: "sun.horizon.fill"
+        case .productivity: "checklist"
+        case .developer: "chevron.left.forwardslash.chevron.right"
+        case .screenshots: "photo.on.rectangle.angled"
+        case .system: "macbook"
+        case .ai: "sparkles"
+        }
+    }
+
+    /// The name the selected tab shows, short enough for the header.
+    var shortTitle: String {
+        switch self {
+        case .developer: "Developer"
+        case .screenshots: "Vault"
+        default: title
+        }
+    }
+
     var category: WidgetCategory? {
         switch self {
         case .overview, .briefing: nil

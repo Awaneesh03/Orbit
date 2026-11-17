@@ -11,16 +11,28 @@ final class NowPlayingWidget: DashboardWidget {
     let metadata = WidgetMetadata(
         id: "nowPlaying", title: "Now Playing", description: "What's playing in Music or on YouTube in Brave",
         symbol: "music.note", category: .general, availability: .live,
-        presentations: [.compact, .expanded], isEnabledByDefault: false)
+        presentations: [.compact, .expanded])
     let coordinator: PlaybackCoordinator
+    /// Milestone 20: lyrics for what's playing (off unless turned on in Settings › General).
+    let lyrics: LyricsModel
 
     /// Listens from launch, not only while visible: Music reports changes, not
     /// its current state, so a track started while the dashboard was closed
     /// would otherwise be missed. (Only the progress bar and thumbnails wait
     /// until the widget is on screen.)
-    init(coordinator: PlaybackCoordinator) {
+    init(coordinator: PlaybackCoordinator, lyrics: LyricsModel = LyricsModel()) {
         self.coordinator = coordinator
+        self.lyrics = lyrics
         coordinator.start()
+        followLyrics()
+    }
+
+    /// Each change of the playing item; the model looks up only a new track, and only while it's on.
+    private func followLyrics() {
+        let current = withObservationTracking { coordinator.current } onChange: { [weak self] in
+            Task { @MainActor in self?.followLyrics() }
+        }
+        lyrics.follow(current)
     }
 
     var state: WidgetState {
@@ -29,7 +41,7 @@ final class NowPlayingWidget: DashboardWidget {
 
     func content(_ presentation: WidgetPresentation) -> AnyView {
         let item = coordinator.current
-        return AnyView(NowPlayingView(item: item, isExpanded: presentation == .expanded) { [coordinator] command in
+        return AnyView(NowPlayingView(item: item, isExpanded: presentation == .expanded, lyrics: lyrics) { [coordinator] command in
             // The item as displayed: the source refuses it if that's no longer on screen.
             guard let item else { return }
             Task {
@@ -54,6 +66,7 @@ extension NowPlaying {
 private struct NowPlayingView: View {
     let item: NowPlaying?
     let isExpanded: Bool
+    let lyrics: LyricsModel
     let perform: (PlaybackCommand) -> Void
 
     var body: some View {
@@ -74,6 +87,9 @@ private struct NowPlayingView: View {
                         }
                     }
                     Spacer(minLength: 0)
+                }
+                if isExpanded, lyrics.isEnabled {
+                    LyricsView(lyrics: lyrics, item: item)
                 }
                 Spacer(minLength: 0)
                 if item.position != nil, !item.isAd {
@@ -97,6 +113,58 @@ private struct NowPlayingView: View {
     }
 
     static func format(_ seconds: TimeInterval) -> String { PlaybackTime.format(seconds) }
+}
+
+/// The current and next synced line while the source reports a position; otherwise the lyrics as text.
+struct LyricsView: View {
+    let lyrics: LyricsModel
+    let item: NowPlaying
+
+    var body: some View {
+        switch lyrics.status {
+        case .found:
+            if let found = lyrics.lyrics { content(found) }
+        case .loading: note("Finding lyrics…")
+        case .notFound: note("No lyrics found for this track")
+        case .failed: note("Lyrics couldn't be loaded (offline?)")
+        case .off, .idle: EmptyView()
+        }
+    }
+
+    @ViewBuilder private func content(_ found: Lyrics) -> some View {
+        if found.instrumental {
+            note("Instrumental")
+        } else if !found.synced.isEmpty, item.position != nil {
+            if item.state == .playing, item.playbackRate > 0 {
+                TimelineView(.periodic(from: .now, by: 0.5)) { context in synced(found, at: context.date) }
+            } else {
+                synced(found, at: .now)
+            }
+        } else if let plain = found.plain ?? (found.synced.isEmpty ? nil : found.synced.map(\.text).joined(separator: "\n")) {
+            HubScroll(axes: .vertical, indicators: .never) {
+                Text(plain).font(OrbitType.caption).foregroundStyle(Theme.secondary).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 54)
+            .accessibilityLabel("Lyrics")
+        }
+    }
+
+    private func synced(_ found: Lyrics, at date: Date) -> some View {
+        let index = found.lineIndex(at: item.elapsed(at: date) ?? 0)
+        let now = index.map { found.synced[$0].text } ?? ""
+        let next = found.synced.indices.contains((index ?? -1) + 1) ? found.synced[(index ?? -1) + 1].text : ""
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(now.isEmpty ? "♪" : now).font(OrbitType.body.weight(.semibold)).lineLimit(1)
+            Text(next).font(OrbitType.caption).foregroundStyle(Theme.tertiary).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Lyrics: \(now)")
+    }
+
+    private func note(_ text: String) -> some View {
+        Label(text, systemImage: "quote.bubble").font(OrbitType.caption).foregroundStyle(Theme.tertiary).lineLimit(1)
+    }
 }
 
 enum PlaybackTime {

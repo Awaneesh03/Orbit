@@ -94,7 +94,9 @@ private let autoHide = DisplayProfile(frame: CGRect(x: 0, y: 0, width: 1280, hei
 @Test func oneSlotOnePriorityOrder() {
     typealias Inputs = NotchCoordination.Inputs
     #expect(NotchCoordination.Surface.allCases == [.dashboard, .expandedMusic, .volumeHUD, .brightnessHUD, .compactMusic, .agentAlert, .eyeBreak,
-                                                   .statusPill, .companion])
+                                                   .deviceNotice, .statusPill, .companion])
+    #expect(NotchCoordination.holder(Inputs(eyeBreak: true, deviceNotice: true)) == .eyeBreak)  // a 3 s device notice waits its turn
+    #expect(NotchCoordination.holder(Inputs(deviceNotice: true, statusPill: true)) == .deviceNotice)
     #expect(NotchCoordination.holder(Inputs(statusPill: true, companion: true)) == .statusPill)  // the pill before the companion
     #expect(NotchCoordination.holder(Inputs(alert: true, statusPill: true)) == .agentAlert)  // a 4 s alert first, then the pill returns
     #expect(NotchCoordination.holder(Inputs(brightnessHUD: true, statusPill: true)) == .brightnessHUD)

@@ -3,7 +3,8 @@ import SwiftUI
 
 /// Pure geometry so positioning is testable without a window server.
 enum NotchGeometry {
-    static let dashboardSize = CGSize(width: 740, height: 420)
+    /// Milestone 21: roomier (was 740 × 420), so two rows of cards breathe.
+    static let dashboardSize = CGSize(width: 860, height: 480)
     static let fallbackTriggerWidth: CGFloat = 200
     static let fallbackTriggerMinHeight: CGFloat = 24
 
@@ -35,7 +36,8 @@ enum NotchGeometry {
     /// Hangs from the top edge, centred on the trigger, kept on screen. Always
     /// contains the trigger, so notch → dashboard never leaves the window.
     static func dashboardRect(trigger: CGRect, screen: CGRect) -> CGRect {
-        let size = dashboardSize
+        // Never wider or taller than the screen (a small display or a large text size).
+        let size = CGSize(width: min(dashboardSize.width, screen.width), height: min(dashboardSize.height, screen.height))
         let x = min(max(trigger.midX - size.width / 2, screen.minX), screen.maxX - size.width)
         return CGRect(x: x, y: screen.maxY - size.height, width: size.width, height: size.height)
     }
@@ -76,6 +78,14 @@ final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) { dropHandler?.dragEnded() }
+
+    /// Set by the panel: a click while the dashboard is closed.
+    var onTriggerClick: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        onTriggerClick?()
+        super.mouseDown(with: event)
+    }
 
     override func rightMouseDown(with event: NSEvent) {
         guard let menu else { return super.rightMouseDown(with: event) }
@@ -127,6 +137,7 @@ final class NotchPanel: NSPanel {
         // Native drag destination: screenshot thumbnails, image files, image data, file promises.
         host.registerForDraggedTypes(ScreenshotDrag.draggedTypes)
         host.dropHandler = self
+        host.onTriggerClick = { [weak self] in self?.clickedTrigger() }
         interaction.onOpenChange = { [weak self] open in self?.openChanged(open) }
         // Editing a text field (its field editor is first responder) keeps it open.
         interaction.holdsOpen = { [weak self] in self?.firstResponder is NSText }
@@ -143,6 +154,8 @@ final class NotchPanel: NSPanel {
     var yieldsTrigger = false {
         didSet { updateMouse() }
     }
+    /// Settings › Notch › Open by clicking (Milestone 21): hovering alone doesn't open it.
+    var opensOnClick = false
 
     /// The keyboard shortcut: opens the dashboard (key, so Escape closes it) or closes it.
     func toggleFromKeyboard() {
@@ -171,6 +184,13 @@ final class NotchPanel: NSPanel {
 
     override func mouseEntered(with event: NSEvent) {
         log.debug("pointer entered at \(NSStringFromPoint(NSEvent.mouseLocation), privacy: .public)")
+        guard !opensOnClick || interaction.isOpen else { return }
+        interaction.pointerEntered()
+    }
+
+    /// A click on the closed notch opens it (always works; the only way in with Open by clicking).
+    func clickedTrigger() {
+        guard !interaction.isOpen, !yieldsTrigger else { return }
         interaction.pointerEntered()
     }
 
@@ -205,7 +225,7 @@ final class NotchPanel: NSPanel {
             left: screen.auxiliaryTopLeftArea, right: screen.auxiliaryTopRightArea)
         dashboardFrame = NotchGeometry.dashboardRect(trigger: triggerFrame, screen: screen.frame)
         dropZone = NotchGeometry.dropZone(trigger: triggerFrame, screen: screen.frame)
-        host.rootView = DashboardView(interaction: interaction, model: model, topInset: triggerFrame.height)
+        host.rootView = DashboardView(interaction: interaction, model: model, topInset: triggerFrame.height, notchWidth: triggerFrame.width)
         setFrame(interaction.isOpen ? dashboardFrame : triggerFrame, display: true)
     }
 

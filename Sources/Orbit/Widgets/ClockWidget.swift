@@ -6,7 +6,7 @@ import SwiftUI
 final class ClockWidget: DashboardWidget {
     let metadata = WidgetMetadata(
         id: "clock", title: "Clock", description: "Greeting, time and date",
-        symbol: "clock", category: .general, availability: .live)
+        symbol: "clock", category: .general, availability: .live, isEnabledByDefault: false)  // the header shows the time (M21)
     let state = WidgetState.ready
     let firstName = NSFullUserName().split(separator: " ").first.map(String.init)
 
